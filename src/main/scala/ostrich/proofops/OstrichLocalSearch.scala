@@ -77,6 +77,7 @@ class OstrichLocalSearch(goal : Goal,
 
   def explore : Seq[Plugin.Action] = {
     val model = new MHashMap[Term, Either[IdealInt, Seq[Int]]]
+    println("model_start: ", model)
 
     // TODO: Assign initial values
     // TODO: Finish WE into RegEx transformation
@@ -96,28 +97,28 @@ class OstrichLocalSearch(goal : Goal,
 
         //println(concat._1.isConstant)
         val regExPart1 = if (element.tail.tail.head.isConstant) {
-          // TODO transform back to string value
+          // TODO: transform back to string value
           "(str.to_re \"" + element.tail.tail.head.toString() + "\")"
         } else {
           "(re.all)"
         }
 
         val regExPart2 = if (element.head.isConstant) {
-          // TODO transform back to string value
+          // TODO: transform back to string value
           "(str.to_re \"" + element.head.toString() + "\")"
         } else {
           "(re.all)"
         }
 
         val regExPart3 = if (element.tail.head.isConstant) {
-          // TODO transform back to string value
+          // TODO: transform back to string value
           "(str.to_re \"" + element.tail.head.toString() + "\")"
         } else {
           "(re.all)"
         }
         val regEx = "(re.union " + regExPart1 + " (re.++ " + regExPart2 + " " + regExPart3 + "))"
         println("regEx: ", regEx)
-        // TODO actually do something with new RegEx
+        // TODO: actually do something with new RegEx
         //posRegularExpressions = posRegularExpressions :+ (new Atom())
         //println("posRegularExpressions modified:", posRegularExpressions)
       }
@@ -181,7 +182,7 @@ class OstrichLocalSearch(goal : Goal,
     var foundSolution = false
     score = 0
 
-    //println("model: ", model)
+    println("model: ", model)
     //for (a <- model){
       //println("test: ", a._1, a._2)
     //}
@@ -195,11 +196,13 @@ class OstrichLocalSearch(goal : Goal,
       //println("concat 2 class: ", concat._2.head.head.getClass)
       //println("concat 3 class: ", concat._2.head.tail.head.getClass)
 
-      var v1: Option[Either[IdealInt, Seq[Int]]] = None
-      var v2: Option[Either[IdealInt, Seq[Int]]] = None
-      var v3: Option[Either[IdealInt, Seq[Int]]] = None
+      var v1: Option[Either[IdealInt, Seq[Int]]] = None //left side
+      var v2: Option[Either[IdealInt, Seq[Int]]] = None //right side
+      var v3: Option[Either[IdealInt, Seq[Int]]] = None // right side
 
       for ((element) <- concat._2) {
+        //get the assigned values
+
         //println("element: ", element)
         v1 = model.get(element.tail.tail.head)
         //println("v1 : ", v1)
@@ -211,20 +214,23 @@ class OstrichLocalSearch(goal : Goal,
         //println("v3 : ", v3)
         //println(element.tail.head)
 
-        //println("v: ", v1, v2, v3)
+        println("v: ", v1, v2, v3)
         //println("v classes: ", v1.getClass, v2.getClass, v3.getClass)
 
+        //concat right side
         val v23 = for {
           Right(vec2) <- v2
           Right(vec3) <- v3
         } yield vec2 ++ vec3
         //println("v23: ", v23)
 
+        //check equality left and right side
         val result = for {
           Right(vec1) <- v1
           combinedVec <- v23
         } yield vec1 == combinedVec
 
+        //scoring
         result match {
           case Some(false) => score += 1
           case Some(true) => println("we sat")
@@ -236,12 +242,15 @@ class OstrichLocalSearch(goal : Goal,
     }
 
     for (regex <- regexes) {
+      //get the assigned values
       val variable = model.get(regex._1)
       val strVariable: Seq[Int] = variable match{
         case Some(Right(strVariable)) => strVariable
         case _ => Seq.empty[Int]
       }
+      //check if assignment is satisfying
       val result = regex._2.apply(strVariable)
+      //scoring
       if (!result) {
         score += 1
       }
@@ -251,8 +260,10 @@ class OstrichLocalSearch(goal : Goal,
     }
 
     //println("goal: ", goal)
+
     if (score <= bestScore){
       bestScore = score
+      // TODO: only update assignment if new best score
     }
     if (score == 0) {
       foundSolution = true
