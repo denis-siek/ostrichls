@@ -53,14 +53,23 @@ class OstrichLocalSearch(goal : Goal,
   implicit val order = goal.order
 
   val facts        = goal.facts
+  //println("facts: ", goal.facts)
   val predConj     = facts.predConj
+  //println("predConj: ", predConj)
   val concatLits   = predConj.positiveLitsWithPred(_str_++)
+  //println("concatLits: ", concatLits)
   val posRegularExpressions = predConj.positiveLitsWithPred(str_in_re_id)
+  //println("posRegularExpressions: ", posRegularExpressions)
   val negRegularExpressions = predConj.negativeLitsWithPred(str_in_re_id)
+  //println("negRegularExpressions: ", negRegularExpressions)
   val concatPerRes = concatLits groupBy (_(2))
+  //println("concatPerRes: ", concatPerRes)
   val lengthLits   = predConj.positiveLitsWithPred(_str_len)
   val lengthMap    = (for (a <- lengthLits.iterator) yield (a(0), a(1))).toMap
   private val equalityPropagator = new OstrichEqualityPropagator(theory)
+
+  var score = 0 // #falsified clauses
+  var bestScore: Int = java.lang.Integer.MAX_VALUE
 
   def resolveConcat(t : LinearCombination)
   : Option[(LinearCombination, LinearCombination)] =
@@ -69,7 +78,50 @@ class OstrichLocalSearch(goal : Goal,
   def explore : Seq[Plugin.Action] = {
     val model = new MHashMap[Term, Either[IdealInt, Seq[Int]]]
 
+    // TODO: Assign initial values
+    // TODO: Finish WE into RegEx transformation
+    // TODO: Loop:
+    //  heuristic to choose which RegEx to satisfy in this iteration (most restrictive first ?)
+    //  find RegEX solution
+    //  convert RegEX solution back to WE solution (if applicable)
+    //  assign values accordingly
+    // check solution
+
     val regexes    = new ArrayBuffer[(Term, Automaton)]
+
+    // transforming WE into RegEx
+
+    for (concat <- concatPerRes) {
+      for ((element) <- concat._2) {
+
+        //println(concat._1.isConstant)
+        val regExPart1 = if (element.tail.tail.head.isConstant) {
+          // TODO transform back to string value
+          "(str.to_re \"" + element.tail.tail.head.toString() + "\")"
+        } else {
+          "(re.all)"
+        }
+
+        val regExPart2 = if (element.head.isConstant) {
+          // TODO transform back to string value
+          "(str.to_re \"" + element.head.toString() + "\")"
+        } else {
+          "(re.all)"
+        }
+
+        val regExPart3 = if (element.tail.head.isConstant) {
+          // TODO transform back to string value
+          "(str.to_re \"" + element.tail.head.toString() + "\")"
+        } else {
+          "(re.all)"
+        }
+        val regEx = "(re.union " + regExPart1 + " (re.++ " + regExPart2 + " " + regExPart3 + "))"
+        println("regEx: ", regEx)
+        // TODO actually do something with new RegEx
+        //posRegularExpressions = posRegularExpressions :+ (new Atom())
+        //println("posRegularExpressions modified:", posRegularExpressions)
+      }
+    }
 
     def decodeRegexId(a : Atom, complemented : Boolean) : Unit = a(1) match {
       case LinearCombination.Constant(id) => {
@@ -111,19 +163,104 @@ class OstrichLocalSearch(goal : Goal,
       case `str_in_re_id` =>
         decodeRegexId(a, true)
     }
+
     for (regex <- regexes){
+      println("regex: ", regex)
       val acceptedWord = regex._2.getAcceptedWord
+      //println("acceptedWord: ", acceptedWord)
       val isAccepted = regex._2.apply(acceptedWord.get)
+      //println("isAccepted: ", isAccepted)
       val product = AutomataUtils.product(Seq(regex._2))
       val concat = AutomataUtils.concat(regex._2.asInstanceOf[BricsAutomaton], regex._2.asInstanceOf[BricsAutomaton])
       model.put(regex._1, Right(acceptedWord.get))
+      //println("aw class", acceptedWord.get.getClass)
     }
+
+
+    // checking Solution
+    var foundSolution = false
+    score = 0
+
+    //println("model: ", model)
+    //for (a <- model){
+      //println("test: ", a._1, a._2)
+    //}
+
     for (concat <- concatPerRes){
-      println(concat)
+      //println("concat: ", concat)
+      //println("concat 1: ", concat._1)
+      //println("concat 2: ", concat._2.head.head)
+      //println("concat 3: ", concat._2.head.tail.head)
+      //println("concat 1 class: ", concat._1.getClass)
+      //println("concat 2 class: ", concat._2.head.head.getClass)
+      //println("concat 3 class: ", concat._2.head.tail.head.getClass)
+
+      var v1: Option[Either[IdealInt, Seq[Int]]] = None
+      var v2: Option[Either[IdealInt, Seq[Int]]] = None
+      var v3: Option[Either[IdealInt, Seq[Int]]] = None
+
+      for ((element) <- concat._2) {
+        //println("element: ", element)
+        v1 = model.get(element.tail.tail.head)
+        //println("v1 : ", v1)
+        //println(element.tail.tail.head)
+        v2 = model.get(element.head)
+        //println("v2 : ", v2)
+        //println(element.head)
+        v3 = model.get(element.tail.head)
+        //println("v3 : ", v3)
+        //println(element.tail.head)
+
+        //println("v: ", v1, v2, v3)
+        //println("v classes: ", v1.getClass, v2.getClass, v3.getClass)
+
+        val v23 = for {
+          Right(vec2) <- v2
+          Right(vec3) <- v3
+        } yield vec2 ++ vec3
+        //println("v23: ", v23)
+
+        val result = for {
+          Right(vec1) <- v1
+          combinedVec <- v23
+        } yield vec1 == combinedVec
+
+        result match {
+          case Some(false) => score += 1
+          case Some(true) => println("we sat")
+          case None => score += 1
+        }
+      }
+
+
     }
 
+    for (regex <- regexes) {
+      val variable = model.get(regex._1)
+      val strVariable: Seq[Int] = variable match{
+        case Some(Right(strVariable)) => strVariable
+        case _ => Seq.empty[Int]
+      }
+      val result = regex._2.apply(strVariable)
+      if (!result) {
+        score += 1
+      }
+      else {
+        println("regex sat")
+      }
+    }
 
-    val foundSolution = false
+    //println("goal: ", goal)
+    if (score <= bestScore){
+      bestScore = score
+    }
+    if (score == 0) {
+      foundSolution = true
+    }
+    else {
+      // TODO: search for new solution
+    }
+
     if (foundSolution){
       equalityPropagator.handleSolution(goal, model.toMap)
     }
@@ -133,3 +270,9 @@ class OstrichLocalSearch(goal : Goal,
   }
 
 }
+
+/*
+while not solution:
+  assign solution
+  check solution
+ */
