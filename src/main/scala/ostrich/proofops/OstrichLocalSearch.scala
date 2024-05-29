@@ -39,6 +39,7 @@ import ap.terfor.linearcombination.LinearCombination
 import ap.terfor.preds.Atom
 import ap.terfor.{TerForConvenience, Term}
 import ostrich._
+import ostrich.automata.BricsAutomaton.{fromString, makeAnyString, prefixAutomaton, suffixAutomaton}
 import ostrich.automata.{AutomataUtils, Automaton, BricsAutomaton}
 
 import scala.collection.mutable.ArrayBuffer
@@ -53,17 +54,17 @@ class OstrichLocalSearch(goal : Goal,
   implicit val order = goal.order
 
   val facts        = goal.facts
-  //println("facts: ", goal.facts)
+  println("facts: ", goal.facts)
   val predConj     = facts.predConj
-  //println("predConj: ", predConj)
+  println("predConj: ", predConj)
   val concatLits   = predConj.positiveLitsWithPred(_str_++)
-  //println("concatLits: ", concatLits)
+  println("concatLits: ", concatLits)
   val posRegularExpressions = predConj.positiveLitsWithPred(str_in_re_id)
-  //println("posRegularExpressions: ", posRegularExpressions)
+  println("posRegularExpressions: ", posRegularExpressions)
   val negRegularExpressions = predConj.negativeLitsWithPred(str_in_re_id)
-  //println("negRegularExpressions: ", negRegularExpressions)
+  println("negRegularExpressions: ", negRegularExpressions)
   val concatPerRes = concatLits groupBy (_(2))
-  //println("concatPerRes: ", concatPerRes)
+  println("concatPerRes: ", concatPerRes)
   val lengthLits   = predConj.positiveLitsWithPred(_str_len)
   val lengthMap    = (for (a <- lengthLits.iterator) yield (a(0), a(1))).toMap
   private val equalityPropagator = new OstrichEqualityPropagator(theory)
@@ -79,48 +80,40 @@ class OstrichLocalSearch(goal : Goal,
     val model = new MHashMap[Term, Either[IdealInt, Seq[Int]]]
     println("model_start: ", model)
 
-    // TODO: Assign initial values
-    // TODO: Finish WE into RegEx transformation
-    // TODO: Loop:
-    //  heuristic to choose which RegEx to satisfy in this iteration (most restrictive first ?)
-    //  find RegEX solution
-    //  convert RegEX solution back to WE solution (if applicable)
-    //  assign values accordingly
-    // check solution
-
     val regexes    = new ArrayBuffer[(Term, Automaton)]
 
     // transforming WE into RegEx
-
+    // TODO: make transformation into function that gets current assignment as parameter
+    //def wordEquationIntoRegex
     for (concat <- concatPerRes) {
       for ((element) <- concat._2) {
 
         //println(concat._1.isConstant)
-        val regExPart1 = if (element.tail.tail.head.isConstant) {
+        val aut1 = if (element.tail.tail.head.isConstant) {
           // TODO: transform back to string value
-          "(str.to_re \"" + element.tail.tail.head.toString() + "\")"
+          fromString(element.tail.tail.head.toString())
         } else {
-          "(re.all)"
+          makeAnyString()
         }
 
-        val regExPart2 = if (element.head.isConstant) {
+        val aut2 = if (element.head.isConstant && element.tail.head.isConstant) {
           // TODO: transform back to string value
-          "(str.to_re \"" + element.head.toString() + "\")"
+          val str = element.head.toString() + element.tail.head.toString()
+          fromString(str)
+        } else if (element.head.isConstant) {
+          println("element: ",element)
+          println("head: ",element.head)
+          BricsAutomaton.apply(element.head.toString() + "@")
+        } else if (element.tail.head.isConstant) {
+          BricsAutomaton.apply("@" + element.tail.head.toString())
         } else {
-          "(re.all)"
+          makeAnyString()
         }
 
-        val regExPart3 = if (element.tail.head.isConstant) {
-          // TODO: transform back to string value
-          "(str.to_re \"" + element.tail.head.toString() + "\")"
-        } else {
-          "(re.all)"
-        }
-        val regEx = "(re.union " + regExPart1 + " (re.++ " + regExPart2 + " " + regExPart3 + "))"
-        println("regEx: ", regEx)
-        // TODO: actually do something with new RegEx
-        //posRegularExpressions = posRegularExpressions :+ (new Atom())
-        //println("posRegularExpressions modified:", posRegularExpressions)
+        val aut = aut1.&(aut2)
+        println("WE into regEx: ", element.tail.tail.head, aut)
+        // TODO: new var where the regexes get added so we don't fuck up scoring
+        regexes += ((element.tail.tail.head,aut))
       }
     }
 
@@ -179,6 +172,7 @@ class OstrichLocalSearch(goal : Goal,
 
 
     // checking Solution
+    // TODO: change check solution into a scoring function with assignment as parameter
     var foundSolution = false
     score = 0
 
@@ -263,13 +257,11 @@ class OstrichLocalSearch(goal : Goal,
 
     if (score <= bestScore){
       bestScore = score
-      // TODO: only update assignment if new best score
     }
     if (score == 0) {
       foundSolution = true
     }
     else {
-      // TODO: search for new solution
     }
 
     if (foundSolution){
@@ -278,6 +270,10 @@ class OstrichLocalSearch(goal : Goal,
     else{
       Seq()
     }
+
+    // TODO: initial assignment
+    // TODO: regex assignment to wordequation assignment
+
   }
 
 }

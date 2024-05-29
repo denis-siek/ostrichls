@@ -5,7 +5,7 @@
 (declare-fun c () String)
 (declare-fun d () String)
 
-(assert (= d (str.++ a b)))
+(assert (= d (str.++ "xy" a)))
 
 (assert (str.in.re a (re.+ (str.to.re "x"))))
 (assert (str.in.re b (re.+ (str.to.re "y"))))
