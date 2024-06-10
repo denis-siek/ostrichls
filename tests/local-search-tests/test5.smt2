@@ -13,6 +13,8 @@
 (assert (= x (str.++ e f)))
 (assert (= c (str.++ d d)))
 (assert (= f "123"))
+(assert (str.in.re a (str.to.re "7")))
+(assert (str.in.re a (re.+(str.to.re "7"))))
 
 (check-sat)
 (get-model)

@@ -33,6 +33,7 @@
 package ostrich.proofops
 
 import ap.basetypes.IdealInt
+import ap.interpolants.StructuredPrograms.Assignment
 import ap.proof.goal.Goal
 import ap.proof.theoryPlugins.Plugin
 import ap.terfor.linearcombination.LinearCombination
@@ -42,8 +43,12 @@ import ostrich._
 import ostrich.automata.BricsAutomaton.{fromString, makeAnyString, prefixAutomaton, suffixAutomaton}
 import ostrich.automata.{AutomataUtils, Automaton, BricsAutomaton}
 
+import java.util.Collections
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.{HashMap => MHashMap}
+import scala.concurrent.forkjoin.ThreadLocalRandom
+import scala.util.control.Breaks.{break, breakable}
 
 class OstrichLocalSearch(goal : Goal,
                          theory : OstrichStringTheory,
@@ -52,6 +57,7 @@ class OstrichLocalSearch(goal : Goal,
   import theory.{FunPred, StringSort, _str_++, str_in_re, str_in_re_id, autDatabase, _str_len, int_to_str, strDatabase, str_prefixof, str_replace, str_suffixof, str_to_int}
 
   implicit val order = goal.order
+
 
   val facts        = goal.facts
   println("facts: ", goal.facts)
@@ -69,8 +75,9 @@ class OstrichLocalSearch(goal : Goal,
   val lengthMap    = (for (a <- lengthLits.iterator) yield (a(0), a(1))).toMap
   private val equalityPropagator = new OstrichEqualityPropagator(theory)
 
-  var score = 0 // #falsified clauses
-  var bestScore: Int = java.lang.Integer.MAX_VALUE
+
+  val maxIterations = 10000
+  var i = 0
 
   def resolveConcat(t : LinearCombination)
   : Option[(LinearCombination, LinearCombination)] =
@@ -81,39 +88,48 @@ class OstrichLocalSearch(goal : Goal,
     println("model_start: ", model)
 
     val regexes    = new ArrayBuffer[(Term, Automaton)]
+    val constructedRegexes = new ArrayBuffer[(Term, Automaton)]
 
-    // transforming WE into RegEx
-    // TODO: make transformation into function that gets current assignment as parameter
-    //def wordEquationIntoRegex
+    // initial assignment
+    // sets all non constant variables to empty string
+    // TODO: try different initial assignments
+    var assignment = new MHashMap[Term, Option[String]]
     for (concat <- concatPerRes) {
-      for ((element) <- concat._2) {
+      for (element <- concat._2) {
+        assignment.update(element.tail.tail.head, Some(strDatabase.term2Str(element.tail.tail.head).getOrElse("")))
+        assignment.update(element.tail.head, Some(strDatabase.term2Str(element.tail.head).getOrElse("")))
+        assignment.update(element.head, Some(strDatabase.term2Str(element.head).getOrElse("")))
+      }
+    }
+    for (regex <- posRegularExpressions) {
+      assignment.update(regex.head, Some(strDatabase.term2Str(regex.head).getOrElse("")))
+    }
+    for (regex <- negRegularExpressions) {
+      assignment.update(regex.head, Some(strDatabase.term2Str(regex.head).getOrElse("")))
+    }
+    println("Assignment: ", assignment)
 
-        //println(concat._1.isConstant)
-        val aut1 = if (element.tail.tail.head.isConstant) {
-          // TODO: transform back to string value
-          fromString(element.tail.tail.head.toString())
-        } else {
-          makeAnyString()
+    // transforms wordequations into regular expressions based on current assignment
+    def wordEquationIntoRegex(assignment : MHashMap[Term, Option[String]]) : Unit = {
+      constructedRegexes.clear()
+      for (concat <- concatPerRes){
+        for (element <- concat._2) {
+          val aut1 = assignment.get(element.tail.tail.head) match {
+            case Some(Some(x)) => fromString(x)
+            case Some(None) => makeAnyString()
+          }
+          val str1 = assignment.get(element.head) match {
+            case Some(Some(x)) => x
+            case Some(None) => ".*"
+          }
+          val str2 = assignment.get(element.tail.head) match {
+            case Some(Some(x)) => x
+            case Some(None) => ".*"
+          }
+          val aut2 = BricsAutomaton.apply(str1 + str2)
+          val aut = aut1.&(aut2)
+          constructedRegexes += ((element.tail.tail.head,aut))
         }
-
-        val aut2 = if (element.head.isConstant && element.tail.head.isConstant) {
-          // TODO: transform back to string value
-          val str = element.head.toString() + element.tail.head.toString()
-          fromString(str)
-        } else if (element.head.isConstant) {
-          println("element: ",element)
-          println("head: ",element.head)
-          BricsAutomaton.apply(element.head.toString() + "@")
-        } else if (element.tail.head.isConstant) {
-          BricsAutomaton.apply("@" + element.tail.head.toString())
-        } else {
-          makeAnyString()
-        }
-
-        val aut = aut1.&(aut2)
-        println("WE into regEx: ", element.tail.tail.head, aut)
-        // TODO: new var where the regexes get added so we don't fuck up scoring
-        regexes += ((element.tail.tail.head,aut))
       }
     }
 
@@ -171,115 +187,119 @@ class OstrichLocalSearch(goal : Goal,
     }
 
 
-    // checking Solution
-    // TODO: change check solution into a scoring function with assignment as parameter
-    var foundSolution = false
-    score = 0
-
-    println("model: ", model)
-    //for (a <- model){
-      //println("test: ", a._1, a._2)
-    //}
-
-    for (concat <- concatPerRes){
-      //println("concat: ", concat)
-      //println("concat 1: ", concat._1)
-      //println("concat 2: ", concat._2.head.head)
-      //println("concat 3: ", concat._2.head.tail.head)
-      //println("concat 1 class: ", concat._1.getClass)
-      //println("concat 2 class: ", concat._2.head.head.getClass)
-      //println("concat 3 class: ", concat._2.head.tail.head.getClass)
-
-      var v1: Option[Either[IdealInt, Seq[Int]]] = None //left side
-      var v2: Option[Either[IdealInt, Seq[Int]]] = None //right side
-      var v3: Option[Either[IdealInt, Seq[Int]]] = None // right side
-
-      for ((element) <- concat._2) {
-        //get the assigned values
-
-        //println("element: ", element)
-        v1 = model.get(element.tail.tail.head)
-        //println("v1 : ", v1)
-        //println(element.tail.tail.head)
-        v2 = model.get(element.head)
-        //println("v2 : ", v2)
-        //println(element.head)
-        v3 = model.get(element.tail.head)
-        //println("v3 : ", v3)
-        //println(element.tail.head)
-
-        println("v: ", v1, v2, v3)
-        //println("v classes: ", v1.getClass, v2.getClass, v3.getClass)
-
-        //concat right side
-        val v23 = for {
-          Right(vec2) <- v2
-          Right(vec3) <- v3
-        } yield vec2 ++ vec3
-        //println("v23: ", v23)
-
-        //check equality left and right side
-        val result = for {
-          Right(vec1) <- v1
-          combinedVec <- v23
-        } yield vec1 == combinedVec
-
-        //scoring
-        result match {
-          case Some(false) => score += 1
-          case Some(true) => println("we sat")
-          case None => score += 1
+    // scoring, solution if score == 0
+    def score(assignment: MHashMap[Term, Option[String]]) : Int = {
+      var score = 0
+      for (concat <- concatPerRes) {
+        for (element <- concat._2) {
+           (assignment.get(element.tail.tail.head), assignment.get(element.head), assignment.get(element.tail.head)) match {
+             case (Some(Some(x)),Some(Some(y)),Some(Some(z))) => if (x != y + z){score += 1}
+             case _ => score += 1
+          }
         }
       }
-
-
-    }
-
-    for (regex <- regexes) {
-      //get the assigned values
-      val variable = model.get(regex._1)
-      val strVariable: Seq[Int] = variable match{
-        case Some(Right(strVariable)) => strVariable
-        case _ => Seq.empty[Int]
+      // TODO: str to Seq[Int] needs fixing
+      for (regex <- regexes) {
+        var word : Seq[Int] = Seq()
+        assignment.get(regex._1) match {
+          case Some(Some(x)) => for ( c <- x.toCharArray) {
+            word = word :+ c.toInt
+            if (!regex._2.apply(word)) {score += 1}
+          }
+          case _ => score += 1
+        }
       }
-      //check if assignment is satisfying
-      val result = regex._2.apply(strVariable)
-      //scoring
-      if (!result) {
-        score += 1
+      return score
+    }
+
+    // TODO: only choose between assigned strVar
+    def unassignRandom(assignment: MHashMap[Term, Option[String]]) : Unit = {
+      val keyArray = assignment.keysIterator.toArray
+      var keyIndex : Int = ThreadLocalRandom.current().nextInt(assignment.keySet.size)
+      assignment.update(keyArray(keyIndex), None)
+    }
+
+    def makeStrVarIntersection(strVar : Term, regexes : ArrayBuffer[(Term,Automaton)]) : Automaton = {
+      val aut = makeAnyString()
+      for (regex <- regexes) {
+        if (regex._1 == strVar) {
+          aut.&(regex._2)
+        }
       }
-      else {
-        println("regex sat")
-      }
+      return aut
     }
 
-    //println("goal: ", goal)
+    //println("assignment", assignment)
+    //unassignRandom(assignment)
+    //println("assignment", assignment)
 
-    if (score <= bestScore){
-      bestScore = score
-    }
-    if (score == 0) {
-      foundSolution = true
-    }
-    else {
-    }
-
-    if (foundSolution){
-      equalityPropagator.handleSolution(goal, model.toMap)
-    }
-    else{
-      Seq()
-    }
-
-    // TODO: initial assignment
     // TODO: regex assignment to wordequation assignment
+    def regexAssignmentIntoWordequationAssignment(acceptedWord : Option[Seq[Int]]) : MHashMap[Term, Option[String]] = {
+      //should never be None
+      var acceptedWordString = acceptedWord.map(_.map(_.toChar).mkString).getOrElse("")
+      //placeholder
+      return new MHashMap[Term, Option[String]]()
+    }
 
+    if (score(assignment) == 0) {
+      // TODO: assignment to model
+      println("SAT with following Assignment: ", assignment)
+      return equalityPropagator.handleSolution(goal, model.toMap)
+    }
+
+
+    while (i < maxIterations) {
+      wordEquationIntoRegex(assignment)
+      println("constructedRegexes: ", constructedRegexes)
+      var usedRegexes = regexes ++ constructedRegexes
+      println("usedRegexes", usedRegexes)
+      val choice = new MHashMap[MHashMap[Term, Option[String]], Int]
+      println("choice", choice)
+      for (strVar <- assignment.keys) {
+        var existsEmpty = false
+        breakable { for (regex <- usedRegexes) {
+          if (regex._1 == strVar && regex._2.isEmpty) {
+            existsEmpty = true
+            break
+          }
+        } }
+        if (existsEmpty) {
+          var newAssignment = assignment
+          newAssignment.update(strVar, None)
+          println("newAssignment", newAssignment)
+          wordEquationIntoRegex(newAssignment)
+          usedRegexes = regexes ++ constructedRegexes
+          println("usedRegexes 2: ", usedRegexes)
+          var strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
+          // TODO: UNSAT if all var unassigned and still empty
+          while (strVarIntersection.isEmpty) {
+            // TODO: try different unassigning strategies here
+            unassignRandom(newAssignment)
+            wordEquationIntoRegex(newAssignment)
+            usedRegexes = regexes ++ constructedRegexes
+            strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
+          }
+          var strVarRegexAssignment = strVarIntersection.getAcceptedWord
+          var strVarAssignment = regexAssignmentIntoWordequationAssignment(strVarRegexAssignment)
+          newAssignment = newAssignment ++ strVarAssignment
+          var currentScore: Int = score(newAssignment)
+          if (currentScore == 0) {
+            // TODO: assignment to model
+            println("SAT with following Assignment: ", assignment)
+            return equalityPropagator.handleSolution(goal, model.toMap)
+          }
+          choice.update(newAssignment, currentScore)
+        }
+      }
+      // choice should never be empty in final version ?
+      if (choice.nonEmpty) {
+        assignment = choice.minBy(_._2)._1
+      }
+      i += 1
+    }
+    println("maxIterations")
+
+    Seq()
   }
-
 }
 
-/*
-while not solution:
-  assign solution
-  check solution
- */
