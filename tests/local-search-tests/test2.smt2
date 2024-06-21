@@ -5,9 +5,9 @@
 (declare-fun c () String)
 (declare-fun d () String)
 
-(assert (str.in.re a (re.+ (str.to.re "x"))))
+(assert (str.in.re a (re.+ (str.to.re "y"))))
 (assert (= a (str.++ b c)))
-(assert (= "y" (str.++ a d)))
+(assert (= "yx" (str.++ a d)))
 
 (check-sat)
 (get-model)

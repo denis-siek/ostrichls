@@ -369,10 +369,10 @@ class OstrichStringTheory(transducers : Seq[(String, Transducer)],
         }
 
         case Plugin.GoalState.Final => try { //  Console.withOut(Console.err)
-          localSearch.explore                          elseDo
-          nielsenSplitter.splitEquation                elseDo
-          predToEq.lazyEnumeration                     elseDo
-          callBackwardProp(goal)
+          localSearch.explore                          //elseDo
+          //nielsenSplitter.splitEquation                elseDo
+          //predToEq.lazyEnumeration                     elseDo
+          //callBackwardProp(goal)
 
         } catch {
           case t : ap.util.Timeout => throw t
