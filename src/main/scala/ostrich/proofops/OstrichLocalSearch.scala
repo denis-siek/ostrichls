@@ -76,7 +76,7 @@ class OstrichLocalSearch(goal : Goal,
   private val equalityPropagator = new OstrichEqualityPropagator(theory)
 
 
-  val maxIterations = 1000
+  val maxIterations = 100
   var i = 0
 
   def resolveConcat(t : LinearCombination)
@@ -116,7 +116,7 @@ class OstrichLocalSearch(goal : Goal,
     for (regex <- negRegularExpressions) {
       assignment.update(regex.head, Some(strDatabase.term2Str(regex.head).getOrElse("")))
     }
-    println("Assignment: ", assignment)
+    //println("Assignment: ", assignment)
 
     // transforms wordequations into regular expressions based on current assignment
     def wordEquationIntoRegex(assignment : MHashMap[Term, Option[String]]) : Unit = {
@@ -313,8 +313,8 @@ class OstrichLocalSearch(goal : Goal,
       val acceptedWordString = acceptedWord.map(_.map(_.toChar).mkString).getOrElse("") //should never be None
       val len = acceptedWordString.length
       val workingAssignment = assignment
-      println("Wordequations: ", wordequations)
-      println("workingAssignment 1: ", workingAssignment)
+      //println("Wordequations: ", wordequations)
+      //println("workingAssignment 1: ", workingAssignment)
       breakable { for (we <- wordequations) {
         if (workingAssignment.get(we._3) == Some(None)){
           workingAssignment.update(we._3, Some(acceptedWordString))
@@ -355,7 +355,7 @@ class OstrichLocalSearch(goal : Goal,
             break
         }
       } }
-      println("workingAssignment: ", workingAssignment)
+      //println("workingAssignment: ", workingAssignment)
       if (reorder) {
         val newWordequations = orderWordequations(workingAssignment, wordequations)
         return regexAssignmentIntoWordequationAssignment(acceptedWord, newWordequations, workingAssignment)
@@ -380,13 +380,13 @@ class OstrichLocalSearch(goal : Goal,
       wordEquationIntoRegex(assignment)
       //println("constructedRegexes: ", constructedRegexes)
       var usedRegexes = regexes ++ constructedRegexes
-      println("usedRegexes", usedRegexes)
+      //println("usedRegexes", usedRegexes)
       val choice = new MHashMap[MHashMap[Term, Option[String]], Int]
       //println("choice", choice)
       for (strVar <- assignment.keys) {
-        println("strVar: ", strVar)
+        //println("strVar: ", strVar)
         if (!strVar.isConstant) {
-          println("Non-constant strVra: ", strVar)
+          //println("Non-constant strVra: ", strVar)
           var existsEmpty = false
           breakable {
             for (regex <- usedRegexes) {
@@ -397,17 +397,17 @@ class OstrichLocalSearch(goal : Goal,
             }
           }
           if (existsEmpty) {
-            println("existsEmpty strVar: ", strVar)
+            //println("existsEmpty strVar: ", strVar)
             var newAssignment = assignment
             newAssignment.update(strVar, None)
-            println("newAssignment", newAssignment)
+            //println("newAssignment", newAssignment)
             wordEquationIntoRegex(newAssignment)
-            println("constructedRegexes: ", constructedRegexes)
+            //println("constructedRegexes: ", constructedRegexes)
             usedRegexes = regexes ++ constructedRegexes
-            println("usedRegexes 2: ", usedRegexes)
+            //println("usedRegexes 2: ", usedRegexes)
 
             var strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-            println("strVarIntersection: ", strVarIntersection)
+            //println("strVarIntersection: ", strVarIntersection)
             // TODO: UNSAT if all var unassigned and still empty
             var print = false //debug
             while (strVarIntersection._1.isEmpty) {
@@ -418,12 +418,12 @@ class OstrichLocalSearch(goal : Goal,
               wordEquationIntoRegex(newAssignment)
               usedRegexes = regexes ++ constructedRegexes
               strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-              println("UPDATE strVarIntersection", strVarIntersection._1)
+              //println("UPDATE strVarIntersection", strVarIntersection._1)
             }
-            if (print) {println("UPDATE strVarIntersection", strVarIntersection._1)} //debug
+            //if (print) {println("UPDATE strVarIntersection", strVarIntersection._1)} //debug
             var strVarRegexAssignment = strVarIntersection._1.getAcceptedWord
             //strVarRegexAssignment = Some(Seq(120,121))
-            println("strVarRegexAssignment: ", strVarRegexAssignment)
+            //println("strVarRegexAssignment: ", strVarRegexAssignment)
             val orderedWordequations = orderWordequations(newAssignment, strVarIntersection._2)
             //println("newAssignment", newAssignment)
             //println("WordEquations: ", strVarIntersection._2)
@@ -441,13 +441,13 @@ class OstrichLocalSearch(goal : Goal,
           }
         }
         else { //strVar is constant
-          println("Constant strVra: ", strVar)
+          //println("Constant strVra: ", strVar)
           var newAssignment = assignment
           newAssignment = constantStrVarResolveConflict(strVar, usedRegexes, newAssignment)
-          println("Assignment after constant resolve conflict: ", newAssignment)
+          //println("Assignment after constant resolve conflict: ", newAssignment)
 
           var strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-          println("strVarIntersection: ", strVarIntersection)
+          //println("strVarIntersection: ", strVarIntersection)
           // TODO: UNSAT if all var unassigned and still empty
           var print = false //debug
           while (strVarIntersection._1.isEmpty) {
@@ -458,12 +458,12 @@ class OstrichLocalSearch(goal : Goal,
             wordEquationIntoRegex(newAssignment)
             usedRegexes = regexes ++ constructedRegexes
             strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-            println("UPDATE strVarIntersection", strVarIntersection._1)
+            //println("UPDATE strVarIntersection", strVarIntersection._1)
           }
-          if (print) {println("UPDATE strVarIntersection", strVarIntersection._1)} //debug
+          //if (print) {println("UPDATE strVarIntersection", strVarIntersection._1)} //debug
           var strVarRegexAssignment = strVarIntersection._1.getAcceptedWord
           //strVarRegexAssignment = Some(Seq(120,121))
-          println("strVarRegexAssignment: ", strVarRegexAssignment)
+          //println("strVarRegexAssignment: ", strVarRegexAssignment)
           val orderedWordequations = orderWordequations(newAssignment, strVarIntersection._2)
           //println("newAssignment", newAssignment)
           //println("WordEquations: ", strVarIntersection._2)
@@ -482,7 +482,12 @@ class OstrichLocalSearch(goal : Goal,
       }
       // choice should never be empty in final version ?
       if (choice.nonEmpty) {
-        assignment = choice.minBy(_._2)._1
+        println("CHOICE: ", choice)
+        val minValue = choice.values.min
+        val minElements = choice.filter { case (_, value) => value == minValue }.toSeq
+        val randomElement = minElements(ThreadLocalRandom.current().nextInt(minElements.length))
+        assignment = randomElement._1
+        //assignment = choice.minBy(_._2)._1
       }
       else {println("CHOICE EMPTY")}
       i += 1
