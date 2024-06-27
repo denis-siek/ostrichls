@@ -9,7 +9,8 @@
 (assert (= (str.++ a b) (str.++ d c)))
 
 (assert (str.in.re a (re.+ (re.union (str.to.re "x") (str.to.re "y")))))
-(assert (str.in.re c (re.+ (str.to.re "xy"))))
+(assert (str.in.re c (re.+ (str.to.re "xyxy"))))
+(assert (str.in.re b (re.+ (str.to.re "xy"))))
 
 (check-sat)
 (get-model)

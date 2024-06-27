@@ -49,6 +49,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.{HashMap => MHashMap}
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.util.control.Breaks.{break, breakable}
+import scala.collection.immutable.Queue
 
 class OstrichLocalSearch(goal : Goal,
                          theory : OstrichStringTheory,
@@ -68,7 +69,7 @@ class OstrichLocalSearch(goal : Goal,
   val posRegularExpressions = predConj.positiveLitsWithPred(str_in_re_id)
   println("posRegularExpressions: ", posRegularExpressions)
   val negRegularExpressions = predConj.negativeLitsWithPred(str_in_re_id)
-  //println("negRegularExpressions: ", negRegularExpressions)
+  println("negRegularExpressions: ", negRegularExpressions)
   val concatPerRes = concatLits groupBy (_(2))
   println("concatPerRes: ", concatPerRes)
   val lengthLits   = predConj.positiveLitsWithPred(_str_len)
@@ -76,8 +77,41 @@ class OstrichLocalSearch(goal : Goal,
   private val equalityPropagator = new OstrichEqualityPropagator(theory)
 
 
-  val maxIterations = 100
+  val maxIterations = 1000
   var i = 0
+  val maxQueueSize = 50 //max iterations with same score
+
+  class FixedSizeQueue[A](val maxSize: Int) {
+    private var queue = Queue.empty[A]
+
+    def enqueue(elem: A): Unit = {
+      if (queue.size >= maxSize) {
+        queue = queue.dequeue._2 // remove the oldest element
+      }
+      queue = queue.enqueue(elem)
+    }
+
+    def dequeue(): (A, FixedSizeQueue[A]) = {
+      val (elem, newQueue) = queue.dequeue
+      (elem, new FixedSizeQueue[A](maxSize) {
+        queue = newQueue
+      })
+    }
+
+    def toList: List[A] = queue.toList
+
+    def size: Int = queue.size
+
+    def allSame: Boolean = {
+      if (queue.isEmpty) true // If the queue is empty, we consider all elements to be the same
+      else {
+        val first = queue.head
+        queue.forall(_ == first)
+      }
+    }
+
+    override def toString: String = queue.mkString("FixedSizeQueue(", ", ", ")")
+  }
 
   def resolveConcat(t : LinearCombination)
   : Option[(LinearCombination, LinearCombination)] =
@@ -97,7 +131,7 @@ class OstrichLocalSearch(goal : Goal,
 
 
     val regexes    = new ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])]
-    val constructedRegexes = new ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])]
+    var constructedRegexes = new ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])]
 
     // initial assignment
     // sets all non constant variables to empty string
@@ -220,14 +254,25 @@ class OstrichLocalSearch(goal : Goal,
           }
           case Some(Some(x)) => for ( c <- x.toCharArray) {
             word = word :+ c.toInt
-            if (!regex._2.apply(word)) {score += 1}
           }
+            if (!regex._2.apply(word)) {score += 1}
           case _ => {
             score += 1
           }
         }
       }
       return score
+    }
+
+    def stringToSeqInt(str: String) : Seq[Int] = {
+      var seqint : Seq[Int] = Seq()
+      str match {
+        case "" => Vector()
+        case x => for ( c <- x.toCharArray) {
+          seqint = seqint :+ c.toInt
+        }
+      }
+      return seqint
     }
 
     def assignmentToModel(assignment : MHashMap[Term, Option[String]], model : MHashMap[Term, Either[IdealInt, Seq[Int]]]) :Unit = {
@@ -282,7 +327,7 @@ class OstrichLocalSearch(goal : Goal,
       for (regex <- usedRegexes) {
         if (regex._1 == strVar && regex._2.isEmpty) {
           val unassignableTerms = new ArrayBuffer[(Term, Term, Term)]
-          unassignableTerms += regex._3.getOrElse((strVar, strVar, strVar)) // Problem with None ??
+          unassignableTerms += regex._3.getOrElse((strVar, strVar, strVar)) // Problem with None ?? NO I guess
           unassignRandomRelevant(assignment, unassignableTerms)
           wordEquationIntoRegex(assignment)
           val usedRegexes2 = regexes ++ constructedRegexes
@@ -308,13 +353,18 @@ class OstrichLocalSearch(goal : Goal,
     }
 
     // TODO: regex assignment to wordequation assignment
-    def regexAssignmentIntoWordequationAssignment(acceptedWord : Option[Seq[Int]], wordequations : ArrayBuffer[(Term, Term, Term)], assignment : MHashMap[Term, Option[String]]) : MHashMap[Term, Option[String]] = {
+    def regexAssignmentIntoWordequationAssignment(acceptedWord : Option[Seq[Int]], wordequations : ArrayBuffer[(Term, Term, Term)], assignment : MHashMap[Term, Option[String]], strVar : Term) : MHashMap[Term, Option[String]] = {
       var reorder = false
       val acceptedWordString = acceptedWord.map(_.map(_.toChar).mkString).getOrElse("") //should never be None
       val len = acceptedWordString.length
       val workingAssignment = assignment
       //println("Wordequations: ", wordequations)
       //println("workingAssignment 1: ", workingAssignment)
+
+      if (wordequations.isEmpty && !strVar.isConstant){
+        workingAssignment.update(strVar, Some(acceptedWordString))
+      }
+
       breakable { for (we <- wordequations) {
         if (workingAssignment.get(we._3) == Some(None)){
           workingAssignment.update(we._3, Some(acceptedWordString))
@@ -322,10 +372,12 @@ class OstrichLocalSearch(goal : Goal,
         (workingAssignment.get(we._1), workingAssignment.get(we._2)) match {
           case (Some(Some(x)),Some(Some(y))) => if (acceptedWordString != x+y) {
             // TODO: choose new word
+            println("ERROR 1")
              }
           case (Some(Some(x)), Some(None)) =>
             if (x.length > len) {
               // TODO: choose new word
+              println("ERROR 2")
             }
             else if (x == acceptedWordString.substring(0,x.length)) {
               workingAssignment.update(we._2, Some(acceptedWordString.substring(x.length)))
@@ -334,10 +386,12 @@ class OstrichLocalSearch(goal : Goal,
             }
             else {
               // TODO: choose new word
+              println("ERROR 3")
             }
           case (Some(None), Some(Some(x))) =>
             if (x.length > len) {
               // TODO: choose new word
+              println("ERROR 4")
             }
             else if (x == acceptedWordString.substring(len-x.length)) {
               workingAssignment.update(we._1, Some(acceptedWordString.substring(0,len-x.length)))
@@ -346,11 +400,33 @@ class OstrichLocalSearch(goal : Goal,
             }
             else {
               // TODO: choose new word
+              println("ERROR 5")
             }
           case (Some(None), Some(None)) =>
-            val randomSplitIndex = ThreadLocalRandom.current().nextInt(acceptedWordString.length)
-            workingAssignment.update(we._1, Some(acceptedWordString.substring(0,randomSplitIndex)))
-            workingAssignment.update(we._2, Some(acceptedWordString.substring(randomSplitIndex)))
+
+            val constructedRegexesTemp = constructedRegexes
+            wordEquationIntoRegex(workingAssignment)
+            val tempRegexes = constructedRegexes
+            constructedRegexes = constructedRegexesTemp
+            val we1Intersection = makeStrVarIntersection(we._1, tempRegexes)
+            val we1AcceptedWord = we1Intersection._1.getAcceptedWord
+            val we1AcceptedWordString = we1AcceptedWord.map(_.map(_.toChar).mkString).getOrElse("")
+
+            val we2Intersection = makeStrVarIntersection(we._2, tempRegexes)
+            val we2AcceptedWord = we2Intersection._1.getAcceptedWord
+            val we2AcceptedWordString = we2AcceptedWord.map(_.map(_.toChar).mkString).getOrElse("")
+
+            if (acceptedWordString.startsWith(we1AcceptedWordString)) {
+              workingAssignment.update(we._1, Some(we1AcceptedWordString))
+              workingAssignment.update(we._2, Some(acceptedWordString.substring(we1AcceptedWordString.length)))
+            } else if (acceptedWordString.endsWith(we2AcceptedWordString)) {
+              workingAssignment.update(we._2, Some(we2AcceptedWordString))
+              workingAssignment.update(we._1, Some(acceptedWordString.substring(0,len-we2AcceptedWordString.length)))
+            } else {
+              val randomSplitIndex = ThreadLocalRandom.current().nextInt(len)
+              workingAssignment.update(we._1, Some(acceptedWordString.substring(0, randomSplitIndex)))
+              workingAssignment.update(we._2, Some(acceptedWordString.substring(randomSplitIndex)))
+            }
             reorder = true
             break
         }
@@ -358,7 +434,7 @@ class OstrichLocalSearch(goal : Goal,
       //println("workingAssignment: ", workingAssignment)
       if (reorder) {
         val newWordequations = orderWordequations(workingAssignment, wordequations)
-        return regexAssignmentIntoWordequationAssignment(acceptedWord, newWordequations, workingAssignment)
+        return regexAssignmentIntoWordequationAssignment(acceptedWord, newWordequations, workingAssignment, strVar)
       }
       return workingAssignment
     }
@@ -373,10 +449,15 @@ class OstrichLocalSearch(goal : Goal,
 
     // TODO: remove duplicate code fragment
     // TODO: forbidding strategy IMPORTANT!!!
+    // TODO: neg RegExp
+    // TODO: replace
+
+    val recentScores = new FixedSizeQueue[Int](maxQueueSize)
 
     while (i < maxIterations) {
       println("Loop: " + i.toString)
       println("Assignment @ start of loop: ", assignment)
+      println("current Score: ", score(assignment))
       wordEquationIntoRegex(assignment)
       //println("constructedRegexes: ", constructedRegexes)
       var usedRegexes = regexes ++ constructedRegexes
@@ -389,10 +470,22 @@ class OstrichLocalSearch(goal : Goal,
           //println("Non-constant strVra: ", strVar)
           var existsEmpty = false
           breakable {
-            for (regex <- usedRegexes) {
+            for (regex <- constructedRegexes) {
+              //println(strVar, regex._2)
               if (regex._1 == strVar && regex._2.isEmpty) {
                 existsEmpty = true
                 break
+              }
+            }
+            for (regex <- regexes) {
+              val strVarString = assignment(strVar)
+              strVarString match {
+                case Some(x) => val strVarSeqInt = stringToSeqInt(x)
+                  if (regex._1 == strVar && !regex._2.apply(strVarSeqInt)) {
+                    existsEmpty = true
+                    break
+                  }
+                case None => //if regex empty UNSAT
               }
             }
           }
@@ -428,7 +521,7 @@ class OstrichLocalSearch(goal : Goal,
             //println("newAssignment", newAssignment)
             //println("WordEquations: ", strVarIntersection._2)
             //println("Order Test: ", test)
-            val strVarAssignment = regexAssignmentIntoWordequationAssignment(strVarRegexAssignment, orderedWordequations, newAssignment) //could probably just be newAssignment
+            val strVarAssignment = regexAssignmentIntoWordequationAssignment(strVarRegexAssignment, orderedWordequations, newAssignment, strVar) //could probably just be newAssignment
             newAssignment = newAssignment ++ strVarAssignment
             val currentScore: Int = score(newAssignment)
             if (currentScore == 0) {
@@ -468,7 +561,7 @@ class OstrichLocalSearch(goal : Goal,
           //println("newAssignment", newAssignment)
           //println("WordEquations: ", strVarIntersection._2)
           //println("Order Test: ", test)
-          val strVarAssignment = regexAssignmentIntoWordequationAssignment(strVarRegexAssignment, orderedWordequations, newAssignment) //could probably just be newAssignment
+          val strVarAssignment = regexAssignmentIntoWordequationAssignment(strVarRegexAssignment, orderedWordequations, newAssignment, strVar) //could probably just be newAssignment
           newAssignment = newAssignment ++ strVarAssignment
           val currentScore: Int = score(newAssignment)
           if (currentScore == 0) {
@@ -483,11 +576,21 @@ class OstrichLocalSearch(goal : Goal,
       // choice should never be empty in final version ?
       if (choice.nonEmpty) {
         println("CHOICE: ", choice)
-        val minValue = choice.values.min
-        val minElements = choice.filter { case (_, value) => value == minValue }.toSeq
-        val randomElement = minElements(ThreadLocalRandom.current().nextInt(minElements.length))
-        assignment = randomElement._1
-        //assignment = choice.minBy(_._2)._1
+        // random choice if score does not improve
+        if (recentScores.size == maxQueueSize && recentScores.allSame) {
+          val values = choice.keys.toVector
+          val value = values(ThreadLocalRandom.current().nextInt(values.size))
+          assignment = value
+          recentScores.enqueue(choice(value))
+        }
+        else {
+          val minValue = choice.values.min
+          val minElements = choice.filter { case (_, value) => value == minValue }.toSeq
+          val randomElement = minElements(ThreadLocalRandom.current().nextInt(minElements.length))
+          assignment = randomElement._1
+          recentScores.enqueue(randomElement._2)
+          //assignment = choice.minBy(_._2)._1
+        }
       }
       else {println("CHOICE EMPTY")}
       i += 1
