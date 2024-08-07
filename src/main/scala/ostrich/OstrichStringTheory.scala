@@ -34,7 +34,7 @@ package ostrich
 
 import ostrich.automata.{AutDatabase, Transducer}
 import ostrich.preop.{PreOp, ReversePreOp, TransducerPreOp}
-import ostrich.proofops.{OstrichLocalSearch, OstrichNielsenSplitter, OstrichPredtoEqConverter}
+import ostrich.proofops.{OstrichLocalSearch,OstrichLocalSearch2, OstrichNielsenSplitter, OstrichPredtoEqConverter}
 import ap.Signature
 import ap.basetypes.IdealInt
 import ap.parser.{IExpression, IFormula, IFunApp, IFunction, ITerm}
@@ -351,6 +351,8 @@ class OstrichStringTheory(transducers : Seq[(String, Transducer)],
         new OstrichPredtoEqConverter(goal, OstrichStringTheory.this, theoryFlags)
       lazy val localSearch =
         new OstrichLocalSearch(goal, OstrichStringTheory.this, theoryFlags)
+      lazy val localSearch2 =
+        new OstrichLocalSearch2(goal, OstrichStringTheory.this, theoryFlags)
 
       goalState(goal) match {
 
@@ -369,7 +371,8 @@ class OstrichStringTheory(transducers : Seq[(String, Transducer)],
         }
 
         case Plugin.GoalState.Final => try { //  Console.withOut(Console.err)
-          localSearch.explore                          //elseDo
+          localSearch2.explore                           //elseDo
+          //localSearch.explore                          //elseDo
           //nielsenSplitter.splitEquation                elseDo
           //predToEq.lazyEnumeration                     elseDo
           //callBackwardProp(goal)
