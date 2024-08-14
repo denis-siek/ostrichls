@@ -1,21 +1,21 @@
 /**
  * This file is part of Ostrich, an SMT solver for strings.
  * Copyright (c) 2018-2021 Matthew Hague, Philipp Ruemmer. All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- * 
+ *
  * * Redistributions of source code must retain the above copyright notice, this
  *   list of conditions and the following disclaimer.
- * 
+ *
  * * Redistributions in binary form must reproduce the above copyright notice,
  *   this list of conditions and the following disclaimer in the documentation
  *   and/or other materials provided with the distribution.
- * 
+ *
  * * Neither the name of the authors nor the names of their
  *   contributors may be used to endorse or promote products derived from
  *   this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
@@ -418,7 +418,15 @@ object AutomataUtils {
     val res = builder.getAutomaton
     res
   }
-
+/*
+  def getLabels(aut: ostrich.automata.Automaton): ArrayBuffer[aut.TLabel] = {
+    val res = new ArrayBuffer[aut.TLabel]
+    for ((s1, lbl, s2) <- aut.transitions){
+      res += lbl
+    }
+    return res
+  }
+  */
   /**
    * Build automaton accepting reverse language of given automaton
    */
@@ -578,7 +586,6 @@ object AutomataUtils {
       }
     }
   }
-
   //////////////////////////////////////////////////////////////////////////////
 
   /**
@@ -605,5 +612,101 @@ object AutomataUtils {
 
     builder.getAutomaton
   }
+  /**
+   * Check if product automaton accepts only one word
+   *
+   * @return the single word if singleton, else None (could be empty aut)
+   */
+  /*
+def isSingleton(auts : List[AtomicStateAutomaton]) : Option[Seq[Int]] = {
+  if (auts.isEmpty)
+    return None
 
+  val headAut = auts.head
+
+  // maps state q to either
+  //   Some(w) to indicate (q1, ..., qn) can be reached by word w
+  //   None to indicate it can be reached by two distinct words (or more)
+  val reachedByWord = new MHashMap[List[Any], Option[Seq[Int]]]
+  // worklist of (q1, ..., qn) reached and to be processed
+  val worklist = new MStack[List[Any]]
+
+  val initState = auts.map(_.initialState)
+  reachedByWord.put(initState, Some(Seq()))
+  worklist.push(initState)
+
+  while (!worklist.isEmpty) {
+    val q = worklist.pop()
+
+    for (
+      (qnext, lblAny) <- enumNext(auts, q, headAut.LabelOps.sigmaLabel);
+      lbl = lblAny.asInstanceOf[headAut.TLabel]
+      if headAut.LabelOps.isNonEmptyLabel(lbl.asInstanceOf[headAut.TLabel])
+    ) {
+      // reachedByWord.get(q) will be defined else q not in worklist
+      val wordToq = reachedByWord.get(q).head
+      val singleCharTran = headAut.LabelOps.isSingleton(lbl)
+      val isFirstReachOfqnext = !reachedByWord.contains(qnext)
+
+      if (isFirstReachOfqnext)
+        worklist.push(qnext)
+
+      // whether we learned in this iteration that there are two
+      // words to q2
+      var newTwoWordsToqnext = false
+
+      // if q reached by single word and only a single char tran then
+      // may only be one word to qnext
+      if (singleCharTran && wordToq.isDefined) {
+        val c = headAut.LabelOps.enumLetters(lbl).next
+        // if single word to q
+        val w = wordToq.head
+        if (isFirstReachOfqnext) {
+          reachedByWord.put(qnext, Some(w :+ c))
+        } else {
+          newTwoWordsToqnext = reachedByWord.get(qnext) != Some(w :+ c)
+        }
+      } else {
+        // at least two words will get us here by this transition alone
+        // update targets if that gives us new information about q2
+        newTwoWordsToqnext
+        = reachedByWord.getOrElse(qnext, Some(Seq())) != None
+      }
+
+      if (newTwoWordsToqnext) {
+        // we learned two words to qnext, therefore two words to
+        // states reachable from qnext
+        if (isAccepting(auts, qnext))
+          return None
+        reachedByWord.put(qnext, None)
+        // now we know there are two words, search again
+        worklist.push(qnext)
+      }
+    }
+  }
+
+  // either 0 or 1 words to final states else would have returned early
+  // or handle multiple accepting states
+  var acceptingWord : Option[Seq[Int]] = None
+  for (q <- reachedByWord.keySet; if isAccepting(auts, q)) {
+    if (acceptingWord.isDefined)
+      return None
+    acceptingWord = reachedByWord.get(q).head
+  }
+  return acceptingWord
+}
+
+def isSingleton(aut : AtomicStateAutomaton) : Option[Seq[Int]] =
+  isSingleton(List(aut))
+
+/**
+ * Version of isSingleton that says "No" for non AtomicStateAutomaton
+ */
+def isSingletonIfAtomic(aut : Automaton) : Option[Seq[Int]] = {
+  if (aut.isInstanceOf[AtomicStateAutomaton])
+    isSingleton(aut.asInstanceOf[AtomicStateAutomaton])
+  else
+    None
+}
+ */
 }

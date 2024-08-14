@@ -42,6 +42,7 @@ import ostrich._
 import ostrich.automata.BricsAutomaton.{fromString, makeAnyString}
 import ostrich.automata.{AutomataUtils, Automaton, BricsAutomaton}
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.{HashMap => MHashMap}
 import scala.concurrent.forkjoin.ThreadLocalRandom
@@ -58,6 +59,7 @@ class OstrichLocalSearch2(goal : Goal,
   val predConj     = facts.predConj
   val concatLits   = predConj.positiveLitsWithPred(_str_++)
   val posRegularExpressions = predConj.positiveLitsWithPred(str_in_re_id)
+  //println("posRegEx", posRegularExpressions)
   val negRegularExpressions = predConj.negativeLitsWithPred(str_in_re_id)
   val concatPerRes = concatLits groupBy (_(2))
   val replacesLits = predConj.positiveLitsWithPred(FunPred(str_replace))
@@ -182,8 +184,9 @@ class OstrichLocalSearch2(goal : Goal,
         val autOption =
           if (complemented)
             autDatabase.id2ComplementedAutomaton(id.intValueSafe)
-          else
+          else {
             autDatabase.id2Automaton(id.intValueSafe)
+          }
 
         autOption match {
           case Some(aut) =>
@@ -202,6 +205,7 @@ class OstrichLocalSearch2(goal : Goal,
     for (a <- posRegularExpressions) a.pred match {
       case `str_in_re` => {
         val regex = regexExtractor regexAsTerm a(1)
+        //println("REGEX", regex)
         val aut = autDatabase.regex2Automaton(regex)
         regexes += ((a.head, aut, None))
       }
@@ -225,7 +229,7 @@ class OstrichLocalSearch2(goal : Goal,
       model.put(regex._1, Right(acceptedWord.get))
     }
     for (concat <- concatPerRes){
-      println(concat)
+      //println(concat)
     }
 
     def score(assignment: MHashMap[Term, Option[String]]) : Int = {
@@ -369,10 +373,16 @@ class OstrichLocalSearch2(goal : Goal,
         }
         newAssignment = assignment
       }
-      val minValue = assignments.map(_._2).min
-      val minElements = assignments.filter(_._2 == minValue)
-      val randomElement = minElements(ThreadLocalRandom.current().nextInt(minElements.length))
-      return randomElement._1
+      if (assignments.isEmpty) {
+        return assignment
+        // return new MHashMap[Term, Option[String]]()
+      }
+      else {
+        val minValue = assignments.map(_._2).min
+        val minElements = assignments.filter(_._2 == minValue)
+        val randomElement = minElements(ThreadLocalRandom.current().nextInt(minElements.length))
+        return randomElement._1
+      }
     }
 
     def solveWithCurrentFixedRegexes(maxTries : Int, fixedRegexes : ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])]) : Option[MHashMap[Term, Option[String]]] = {
@@ -382,7 +392,12 @@ class OstrichLocalSearch2(goal : Goal,
         wordEquationIntoRegex(assignment)
         val weRegexes = constructedRegexesWordequations
         val intersectedRegexes = intersectWeRegexesWithFixedRegexes(fixedRegexes, weRegexes)
-        val acceptedWords = getAcceptedWords(intersectedRegexes)
+        var acceptedWords = getAcceptedWords(intersectedRegexes)
+        // if no accepting words in intersection with fixed found
+        // then get accepted words for regexes alone
+        if (acceptedWords.isEmpty){
+          acceptedWords = getAcceptedWords(weRegexes)
+        }
         val newAssignment = tryAssignments(assignment, acceptedWords)
         if (score(newAssignment) == 0) {
          return Some(newAssignment)
@@ -391,6 +406,146 @@ class OstrichLocalSearch2(goal : Goal,
         tries += 1
       }
       return None
+    }
+
+    //get all the chars that may be used
+    def getUsedChars() : Set[Char] = {
+      val charSet : Set[Char] = Set()
+      for (regex <-regexes){
+        val aut = regex._2
+        //println(aut.)
+      }
+
+
+
+      return charSet
+    }
+
+    // gives None as splitting, is fine as long as we only call this with nonsplitt Wes
+    // might need changing later
+    def getWeWithDifferentConstParts(weRegexes : ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])], currAssignment : MHashMap[Term, Option[String]]): (ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]) = {
+      val weConstx = new ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]
+      val weConsty = new ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]
+      val weConstz = new ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]
+      val weNoConst = new ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]
+      for (we <- weRegexes) {
+        we._3 match {
+          case Some((x, y, z)) if currAssignment.get(x).flatten.isDefined && currAssignment.get(y).flatten.isEmpty && currAssignment.get(z).flatten.isEmpty =>
+            weConstx += ((we._1, we._2, (x,y,z), None, 1))
+          case Some((x, y, z)) if currAssignment.get(y).flatten.isDefined && currAssignment.get(x).flatten.isEmpty && currAssignment.get(z).flatten.isEmpty =>
+            weConsty += ((we._1, we._2, (x,y,z), None, 2))
+          case Some((x, y, z)) if currAssignment.get(z).flatten.isDefined && currAssignment.get(x).flatten.isEmpty && currAssignment.get(y).flatten.isEmpty =>
+            weConstz += ((we._1, we._2, (x,y,z), None, 3))
+          case Some((x, y, z)) if currAssignment.get(x).flatten.isEmpty && currAssignment.get(y).flatten.isEmpty && currAssignment.get(z).flatten.isEmpty =>
+            weNoConst += ((we._1, we._2, (x,y,z), None, 4))
+          case _ => // If none of the conditions match, do nothing
+        }
+      }
+      return (weConstx, weConsty, weConstz, weNoConst)
+    }
+
+    def splitting(currSplitWes : ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], assignment: MHashMap[Term, Option[String]]) : (ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], MHashMap[Term, Option[String]]) = {
+      def splittingConstx(currSplitWes : ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], assignment: MHashMap[Term, Option[String]], currWe : (Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)) : (ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], MHashMap[Term, Option[String]]) = {
+        //getOrElse never actually used
+        val const = assignment(currWe._3._1).getOrElse("")
+        if (currWe._4.isDefined) {
+          val currSplit = currWe._4.getOrElse(("","",""))
+          // we: x = y z, first: x = x eps, last: x = eps x
+          if (currSplit == (const, "", const)){
+            // all splits for this we tried
+            // next split for previous we
+            assignment.update(currWe._3._2, None)
+            assignment.update(currWe._3._3, None)
+            currSplitWes.trimEnd(1)
+            splitting(currSplitWes,assignment)
+          }
+          else {
+            val lastChary = currSplit._2.last
+            val newy = currSplit._2.dropRight(1)
+            val newz = lastChary + currSplit._3
+            val newSplit = (const, newy, newz)
+            assignment.update(currWe._3._2, Some(newy))
+            assignment.update(currWe._3._3, Some(newz))
+            currSplitWes.trimEnd(1)
+            currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 1))
+            return (currSplitWes, assignment)
+          }
+        }
+        else {
+          //first split
+          val newSplit = (const, const, "")
+          assignment.update(currWe._3._2, Some(const))
+          assignment.update(currWe._3._3, Some(""))
+          currSplitWes.trimEnd(1)
+          currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 1))
+          return (currSplitWes, assignment)
+        }
+      }
+      def splittingConsty(currSplitWes : ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], assignment: MHashMap[Term, Option[String]], currWe : (Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)) : (ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], MHashMap[Term, Option[String]]) = {
+        //start with commonprefix ?
+        //val commonPrefix = dk.brics.automaton.SpecialOperations.getCommonPrefix(currWe._2)
+        return (currSplitWes, assignment)
+      }
+      def splittingConstz(currSplitWes : ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], assignment: MHashMap[Term, Option[String]], currWe : (Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)) : (ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], MHashMap[Term, Option[String]]) = {
+        return (currSplitWes, assignment)
+      }
+      def splittingNoConst(currSplitWes : ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], assignment: MHashMap[Term, Option[String]], currWe : (Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)) : (ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], MHashMap[Term, Option[String]]) = {
+        return (currSplitWes, assignment)
+      }
+
+      var chosenWe : (Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int) = null
+      //select a WE to perform Automata splitting on
+      //prefer const left side that have not been split yet
+
+      //get  not split wes
+      wordEquationIntoRegex(assignment)
+      val weRegexes = constructedRegexesWordequations
+      val notSplitWes = new ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])]
+      for (we <- weRegexes) {
+        val exists = currSplitWes.exists {
+          case (term, aut, weTerms, _, _) => term == we._1 && aut == we._2 && we._3.contains(weTerms)
+          case _ => false
+        }
+        if (!exists) {
+          notSplitWes += we
+        }
+      }
+
+      //get different const parts
+      val (weNotSplitConstLeftSide, weNotSplitConstRightSidey, weNotSplitConstRightSidez, weNotSplitNoConst) = getWeWithDifferentConstParts(notSplitWes, assignment)
+
+      //choose we to perform splitting on
+      if (weNotSplitConstLeftSide.nonEmpty) {
+        chosenWe = weNotSplitConstLeftSide(ThreadLocalRandom.current().nextInt(weNotSplitConstLeftSide.length))
+        currSplitWes.append(chosenWe)
+      }
+      else if (weNotSplitConstRightSidey.nonEmpty) {
+        chosenWe = weNotSplitConstRightSidey(ThreadLocalRandom.current().nextInt(weNotSplitConstRightSidey.length))
+        currSplitWes.append(chosenWe)
+      }
+      else if (weNotSplitConstRightSidez.nonEmpty) {
+        chosenWe = weNotSplitConstRightSidez(ThreadLocalRandom.current().nextInt(weNotSplitConstRightSidez.length))
+        currSplitWes.append(chosenWe)
+      }
+      else if (weNotSplitNoConst.nonEmpty) {
+        chosenWe = weNotSplitNoConst(ThreadLocalRandom.current().nextInt(weNotSplitNoConst.length))
+        currSplitWes.append(chosenWe)
+      }
+      else {
+        chosenWe = currSplitWes.last
+      }
+
+      chosenWe._5 match {
+        case 1 => return splittingConstx(currSplitWes, assignment, chosenWe)
+        case 2 => return splittingConsty(currSplitWes, assignment, chosenWe)
+        case 3 => return splittingConstz(currSplitWes, assignment, chosenWe)
+        case 4 => return splittingNoConst(currSplitWes, assignment, chosenWe)
+        case _ => return (currSplitWes, assignment) //ERROR
+
+      }
+
+
+
     }
 /*
     def getunfulfilledWEs(assignment : MHashMap[Term, Option[String]]) : ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])] = {
@@ -439,18 +594,18 @@ class OstrichLocalSearch2(goal : Goal,
       }
 
       // could not solve with current fixed Regexes
-      // Automata Splitting to add more stuff to fixed Regexes
+      // Automata Splitting
 
-      //select a WE to perform Automata splitting on
-      wordEquationIntoRegex(assignment)
-      val weRegexesSelect = constructedRegexesWordequations
-      val weRegexesSelect2 = new ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])]
-      for (element <- weRegexesSelect) {
-        if (assignment.get(element._1).flatten == None) {
-          weRegexesSelect2 += element
-        }
-      }
-      val selectedWE = weRegexesSelect2(ThreadLocalRandom.current().nextInt(weRegexesSelect2.length))
+      //[Term, Aut, We, currSplit, Type]
+      // Type: 1=constx, 2=consty, 3=constz, 4=noconst
+      var currSplitWes = new ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]
+
+      //revert assignment to a safe assignment
+      assignment = assignmentSafe
+
+      val (newSplitWes, newAssignment) = splitting(currSplitWes, assignment)
+
+
 
       //Todo: Splitting on selected WE
       // Adding disjunct to fixedRegexes
@@ -458,8 +613,6 @@ class OstrichLocalSearch2(goal : Goal,
       // Loop this process
 
 
-      //revert assignment to a safe assignment
-      assignment = assignmentSafe
 
       //pick a not fulfilled WE
       //val unfulfilledWEs =
@@ -475,8 +628,9 @@ class OstrichLocalSearch2(goal : Goal,
 
 
 
-
-
+    // TESTING AREA
+    tryAssignments(new MHashMap[Term, Option[String]], new ArrayBuffer[(Term, String)])
+    val test = getUsedChars()
 
 
 
