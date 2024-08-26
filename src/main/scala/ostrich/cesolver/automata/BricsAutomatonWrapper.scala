@@ -32,11 +32,9 @@
 
 package ostrich.cesolver.automata
 
-import dk.brics.automaton.{
-  BasicAutomata,
-  RegExp,
-  Automaton => BAutomaton
-}
+import dk.brics.automaton.{BasicAutomata, RegExp, Automaton => BAutomaton}
+
+import java.util
 
 // import scala.collection.JavaConverters.asScala
 import scala.collection.JavaConversions.{asScalaSet, asScalaIterator}
@@ -92,4 +90,7 @@ class BricsAutomatonWrapper(val underlying: BAutomaton)
     for (t <- s.getTransitions())
       addTransition(s, (t.getMin(), t.getMax()), t.getDest(), Seq())
   }
+
+  override def getStrings(length: Int): util.Set[String] =
+    underlying.getStrings(length)
 }

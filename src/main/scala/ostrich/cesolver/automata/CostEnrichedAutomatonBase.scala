@@ -34,12 +34,7 @@ package ostrich.cesolver.automata
 
 import ostrich.automata._
 
-import scala.collection.mutable.{
-  HashMap => MHashMap,
-  Stack => MStack,
-  HashSet => MHashSet,
-  ArrayBuffer
-}
+import scala.collection.mutable.{ArrayBuffer, HashMap => MHashMap, HashSet => MHashSet, Stack => MStack}
 import scala.collection.immutable.Map
 import scala.collection.mutable.ArrayStack
 import java.time.LocalDate
@@ -47,11 +42,14 @@ import ostrich.cesolver.util.DotWriter
 import dk.brics.automaton.{State => BState}
 import dk.brics.automaton.BasicOperations
 import CEBasicOperations.toBricsAutomaton
+
 import java.io.File
 import ap.parser.ITerm
 import ap.parser.IFormula
 import ap.parser.IExpression._
 import ap.parser.IExpression
+
+import java.util
 
 /** This is the implementation of cost-enriched finite automaton(CEFA). Each
   * transition of CEFA contains a vector of integers, which is used to record
@@ -411,4 +409,7 @@ class CostEnrichedAutomatonBase extends Automaton {
     strbuilder.append("}")
     writer.closeAfterWrite(strbuilder.toString())
   }
+
+  override def getStrings(length: Int): util.Set[String] =
+    this.getStrings(length)
 }

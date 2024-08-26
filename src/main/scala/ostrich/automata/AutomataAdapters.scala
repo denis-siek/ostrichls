@@ -32,10 +32,8 @@
 
 package ostrich.automata
 
-import scala.collection.mutable.{HashMap => MHashMap, ArrayStack,
-                                 HashSet => MHashSet, MultiMap,
-                                 LinkedHashSet => MLinkedHashSet,
-                                 Set => MSet}
+import java.util
+import scala.collection.mutable.{ArrayStack, MultiMap, HashMap => MHashMap, HashSet => MHashSet, LinkedHashSet => MLinkedHashSet, Set => MSet}
 import scala.collection.{Set => GSet}
 
 object AtomicStateAutomatonAdapter {
@@ -222,6 +220,9 @@ case class _InitFinalAutomaton[A <: AtomicStateAutomaton]
          if _states contains s)
     yield p
   }
+
+  override def getStrings(length: Int): util.Set[String] =
+    underlying.getStrings(length)
 }
 
 /**
@@ -233,7 +234,10 @@ case class ReplaceCharAutomaton[A <: AtomicStateAutomaton]
                                 newTrans : Iterable[(A#State, A#State)])
     extends AtomicStateAutomatonAdapter[AtomicStateAutomaton](
       AutomataUtils.replaceTransitions(aut, a, newTrans)
-    ) { }
+    ) {
+  override def getStrings(length: Int): util.Set[String] =
+    underlying.getStrings(length)
+}
 
 
 /**
@@ -256,7 +260,10 @@ object ProductAutomaton {
 case class _ProductAutomaton(auts : Seq[AtomicStateAutomaton])
     extends AtomicStateAutomatonAdapter[AtomicStateAutomaton](
       AutomataUtils.product(auts)
-    ) { }
+    ) {
+  override def getStrings(length: Int): util.Set[String] =
+    underlying.getStrings(length)
+}
 
 /**
  * Case class representation of tran.preImage(aut, internal)
@@ -267,7 +274,10 @@ case class PreImageAutomaton[A <: AtomicStateAutomaton]
                              internal : Iterable[(A#State, A#State)])
     extends AtomicStateAutomatonAdapter[AtomicStateAutomaton](
       tran.preImage(targ, internal)
-    ) { }
+    ) {
+  override def getStrings(length: Int): util.Set[String] =
+    underlying.getStrings(length)
+}
 
 /**
  * Case class representation of tran.preImage(aut, internalAut)
@@ -278,7 +288,10 @@ case class PostImageAutomaton[A <: AtomicStateAutomaton]
                               internalAut : Option[A] = None)
     extends AtomicStateAutomatonAdapter[AtomicStateAutomaton](
       tran.postImage(inAut, internalAut)
-    ) { }
+    ) {
+  override def getStrings(length: Int): util.Set[String] =
+    underlying.getStrings(length)
+}
 
 /**
  * Case class representation of AutomataUtils.reverse
@@ -286,7 +299,10 @@ case class PostImageAutomaton[A <: AtomicStateAutomaton]
 case class ReverseAutomaton(aut : AtomicStateAutomaton)
     extends AtomicStateAutomatonAdapter[AtomicStateAutomaton](
       AutomataUtils.reverse(aut)
-    ) { }
+    ) {
+  override def getStrings(length: Int): util.Set[String] =
+    underlying.getStrings(length)
+}
 
 /**
  * Case class representation of AutomataUtils.reverse
@@ -294,7 +310,10 @@ case class ReverseAutomaton(aut : AtomicStateAutomaton)
 case class ConcatAutomaton(aut1 : AtomicStateAutomaton, aut2 : AtomicStateAutomaton)
     extends AtomicStateAutomatonAdapter[AtomicStateAutomaton](
       AutomataUtils.concat(aut1, aut2)
-    ) { }
+    ) {
+  override def getStrings(length: Int): util.Set[String] =
+    underlying.getStrings(length)
+}
 
 /**
  * Case class representation of one automaton inserted into another to
@@ -305,6 +324,9 @@ case class NestedAutomaton(inner: AtomicStateAutomaton,
                            outer: AtomicStateAutomaton)
     extends AtomicStateAutomatonAdapter[AtomicStateAutomaton](
       AutomataUtils.nestAutomata(inner, a, outer)
-    ) { }
+    ) {
+  override def getStrings(length: Int): util.Set[String] =
+    underlying.getStrings(length)
+}
 
 

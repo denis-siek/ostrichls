@@ -31,6 +31,8 @@
  */
 
 package ostrich.cesolver.automata
+import java.util
 
 class CostEnrichedAutomaton extends CostEnrichedAutomatonBase{
+  override def getStrings(length: Int): util.Set[String] = ???
 }

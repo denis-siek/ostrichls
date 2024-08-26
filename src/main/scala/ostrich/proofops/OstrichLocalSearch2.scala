@@ -42,6 +42,8 @@ import ostrich._
 import ostrich.automata.BricsAutomaton.{fromString, makeAnyString}
 import ostrich.automata.{AutomataUtils, Automaton, BricsAutomaton}
 
+import java.util
+import scala.collection.JavaConverters.asScalaSetConverter
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.{HashMap => MHashMap}
@@ -59,7 +61,7 @@ class OstrichLocalSearch2(goal : Goal,
   val predConj     = facts.predConj
   val concatLits   = predConj.positiveLitsWithPred(_str_++)
   val posRegularExpressions = predConj.positiveLitsWithPred(str_in_re_id)
-  //println("posRegEx", posRegularExpressions)
+  println("posRegEx", posRegularExpressions)
   val negRegularExpressions = predConj.negativeLitsWithPred(str_in_re_id)
   val concatPerRes = concatLits groupBy (_(2))
   val replacesLits = predConj.positiveLitsWithPred(FunPred(str_replace))
@@ -173,7 +175,9 @@ class OstrichLocalSearch2(goal : Goal,
           }
           val aut2 = BricsAutomaton.apply(str1 + str2)
           val aut = aut1.&(aut2)
-          val wordequation : (Term, Term, Term) = (we1, we2, we3)
+          //val wordequation : (Term, Term, Term) = (we1, we2, we3)
+          val wordequation : (Term, Term, Term) = (we3, we1, we2)
+          //TODO: we1,we2,we3 ?????
           constructedRegexesWordequations += ((we3, aut, Some(wordequation)))
         }
       }
@@ -337,18 +341,20 @@ class OstrichLocalSearch2(goal : Goal,
 
     //checks if there is already a conflict in assigned variables, ignores unassigned stuff
     def checkAssignmentViable(assignment : MHashMap[Term, Option[String]]) : Boolean = {
+      //println("TEST 6")
       for (concat <- concatPerRes) {
         for (element <- concat._2) {
           (assignment.get(element.tail.tail.head).flatten, assignment.get(element.tail.head).flatten, assignment.get(element.head).flatten) match {
             case (Some(x), Some(y), Some(z)) => if (x != y + z) {
               return false
             }
-            case (Some(x), Some(y), None) => if (x.substring(0, y.length) != y) {
+            case (Some(x), Some(y), None) => if (x.length < y.length || x.substring(0, y.length) != y) {
               return false
             }
-            case (Some(x), None, Some(z)) => if (x.substring(x.length - z.length) != z) {
+            case (Some(x), None, Some(z)) => if (x.length < z.length || x.substring(x.length - z.length) != z) {
               return false
             }
+            case _ => //do nothing
           }
         }
       }
@@ -367,7 +373,10 @@ class OstrichLocalSearch2(goal : Goal,
       var newAssignment = assignment
       val assignments = new ArrayBuffer[(MHashMap[Term, Option[String]],Int)]
       for (element <- acceptedWords) {
+        //println("TEST 4")
         newAssignment.update(element._1, Some(element._2))
+        //newAssignment = solveWeWith2AssignedParts(newAssignment) do I need to call that here? probably not
+        //println("TEST 5")
         if (checkAssignmentViable(newAssignment)) {
           assignments += ((newAssignment, score(newAssignment)))
         }
@@ -385,10 +394,8 @@ class OstrichLocalSearch2(goal : Goal,
       }
     }
 
-    def solveWithCurrentFixedRegexes(maxTries : Int, fixedRegexes : ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])]) : Option[MHashMap[Term, Option[String]]] = {
-      var tries : Int = 0
-      while (tries <= maxTries) {
-
+    def solveWithCurrentFixedRegexes(maxTries : Int, assignment: MHashMap[Term, Option[String]], fixedRegexes : ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])]) : Option[MHashMap[Term, Option[String]]] = {
+      while (maxTries > 0) {
         wordEquationIntoRegex(assignment)
         val weRegexes = constructedRegexesWordequations
         val intersectedRegexes = intersectWeRegexesWithFixedRegexes(fixedRegexes, weRegexes)
@@ -398,12 +405,14 @@ class OstrichLocalSearch2(goal : Goal,
         if (acceptedWords.isEmpty){
           acceptedWords = getAcceptedWords(weRegexes)
         }
+        //println("TEST 3")
+        //println("assignment: ", assignment)
+        //println("acceptedWords: ", acceptedWords)
         val newAssignment = tryAssignments(assignment, acceptedWords)
         if (score(newAssignment) == 0) {
          return Some(newAssignment)
         }
-        assignment = newAssignment
-        tries += 1
+        return solveWithCurrentFixedRegexes(maxTries-1,newAssignment,fixedRegexes)
       }
       return None
     }
@@ -424,11 +433,13 @@ class OstrichLocalSearch2(goal : Goal,
     // gives None as splitting, is fine as long as we only call this with nonsplitt Wes
     // might need changing later
     def getWeWithDifferentConstParts(weRegexes : ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])], currAssignment : MHashMap[Term, Option[String]]): (ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]) = {
+      //println("getDiffCon Assignment: ", currAssignment)
       val weConstx = new ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]
       val weConsty = new ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]
       val weConstz = new ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]
       val weNoConst = new ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]
       for (we <- weRegexes) {
+        //println("we3: ", we._3)
         we._3 match {
           case Some((x, y, z)) if currAssignment.get(x).flatten.isDefined && currAssignment.get(y).flatten.isEmpty && currAssignment.get(z).flatten.isEmpty =>
             weConstx += ((we._1, we._2, (x,y,z), None, 1))
@@ -457,7 +468,20 @@ class OstrichLocalSearch2(goal : Goal,
             assignment.update(currWe._3._2, None)
             assignment.update(currWe._3._3, None)
             currSplitWes.trimEnd(1)
-            splitting(currSplitWes,assignment)
+            if (currSplitWes.isEmpty) {
+              println("UNSAT 1")
+              return (currSplitWes, assignment)
+            }
+            else {
+              val prevWE = currSplitWes.last
+              prevWE._5 match {
+                case 1 => return splittingConstx(currSplitWes, assignment, prevWE)
+                case 2 => return splittingConsty(currSplitWes, assignment, prevWE)
+                case 3 => return splittingConstz(currSplitWes, assignment, prevWE)
+                case 4 => return splittingNoConst(currSplitWes, assignment, prevWE)
+                case _ => return (currSplitWes, assignment) //ERROR
+              }
+            }
           }
           else {
             val lastChary = currSplit._2.last
@@ -482,15 +506,338 @@ class OstrichLocalSearch2(goal : Goal,
         }
       }
       def splittingConsty(currSplitWes : ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], assignment: MHashMap[Term, Option[String]], currWe : (Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)) : (ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], MHashMap[Term, Option[String]]) = {
-        //start with commonprefix ?
-        //val commonPrefix = dk.brics.automaton.SpecialOperations.getCommonPrefix(currWe._2)
-        return (currSplitWes, assignment)
+        val const = assignment(currWe._3._2).getOrElse("")
+        var i = const.length
+        if (currWe._4.isDefined) {
+          val currSplit = currWe._4.getOrElse(("","",""))
+          if (currSplit._1.length > 20 /*cutoff criteria*/) { //last split
+            assignment.update(currWe._3._1, None)
+            assignment.update(currWe._3._3, None)
+            currSplitWes.trimEnd(1)
+            if (currSplitWes.isEmpty) {
+              println("UNSAT 2")
+              return (currSplitWes, assignment)
+            }
+            else {
+              val prevWE = currSplitWes.last
+              prevWE._5 match {
+                case 1 => return splittingConstx(currSplitWes, assignment, prevWE)
+                case 2 => return splittingConsty(currSplitWes, assignment, prevWE)
+                case 3 => return splittingConstz(currSplitWes, assignment, prevWE)
+                case 4 => return splittingNoConst(currSplitWes, assignment, prevWE)
+                case _ => return (currSplitWes, assignment) //ERROR
+              }
+            }
+          }
+          else { //not the last split
+            val len = currSplit._1.length
+            var awSet: java.util.Set[String] = currWe._2.getStrings(len)
+            val scalaSet: scala.collection.immutable.Set[String] = awSet.asScala.toSet
+            val sortedSeq: Seq[String] = scalaSet.toSeq.sorted
+            val index = sortedSeq.indexOf(currSplit._1)
+            val nextWord: Option[String] =
+              if (index >= 0 && index < sortedSeq.length - 1) {
+                Some(sortedSeq(index + 1))
+              }
+              else {
+                None
+              }
+            if (nextWord.isDefined) {
+              val newz = nextWord.getOrElse("").substring(const.length)
+              val newSplit = (nextWord.getOrElse(""), const, newz)
+              assignment.update(currWe._3._1, Some(nextWord.getOrElse("")))
+              assignment.update(currWe._3._3, Some(newz))
+              currSplitWes.trimEnd(1)
+              currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 2))
+              return (currSplitWes, assignment)
+            }
+            else {
+              awSet.clear()
+              var j = len + 1
+              while (awSet.isEmpty) {
+                println("get aw 2: ", j)
+                awSet = currWe._2.getStrings(j)
+                j += 1
+                if (j > 20) {
+                  assignment.update(currWe._3._1, None)
+                  assignment.update(currWe._3._3, None)
+                  currSplitWes.trimEnd(1)
+                  if (currSplitWes.isEmpty) {
+                    println("UNSAT 2b")
+                    return (currSplitWes, assignment)
+                  }
+                  else {
+                    val prevWE = currSplitWes.last
+                    prevWE._5 match {
+                      case 1 => return splittingConstx(currSplitWes, assignment, prevWE)
+                      case 2 => return splittingConsty(currSplitWes, assignment, prevWE)
+                      case 3 => return splittingConstz(currSplitWes, assignment, prevWE)
+                      case 4 => return splittingNoConst(currSplitWes, assignment, prevWE)
+                      case _ => return (currSplitWes, assignment) //ERROR
+                    }
+                  }
+                }
+              }
+              val scalaSet: scala.collection.immutable.Set[String] = awSet.asScala.toSet
+              val sortedSeq: Seq[String] = scalaSet.toSeq.sorted
+              val aw = sortedSeq.head
+              val newz = aw.substring(const.length)
+              val newSplit = (aw, const, newz)
+              assignment.update(currWe._3._1, Some(aw))
+              assignment.update(currWe._3._3, Some(newz))
+              currSplitWes.trimEnd(1)
+              currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 2))
+              return (currSplitWes, assignment)
+            }
+          }
+
+        }
+        else {
+          //first split
+          var awSet: java.util.Set[String] = new util.HashSet[String]()
+          while (awSet.isEmpty) {
+            println("get aw 2 (first): ", i)
+            awSet = currWe._2.getStrings(i)
+            i += 1
+          }
+          val scalaSet: scala.collection.immutable.Set[String] = awSet.asScala.toSet
+          val sortedSeq: Seq[String] = scalaSet.toSeq.sorted
+          val aw = sortedSeq.head
+          val newz = aw.substring(const.length)
+          val newSplit = (aw, const, newz)
+          assignment.update(currWe._3._1, Some(aw))
+          assignment.update(currWe._3._3, Some(newz))
+          currSplitWes.trimEnd(1)
+          currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 2))
+          return (currSplitWes, assignment)
+        }
       }
       def splittingConstz(currSplitWes : ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], assignment: MHashMap[Term, Option[String]], currWe : (Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)) : (ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], MHashMap[Term, Option[String]]) = {
-        return (currSplitWes, assignment)
+        val const = assignment(currWe._3._3).getOrElse("")
+        var i = const.length
+        if (currWe._4.isDefined) {
+          val currSplit = currWe._4.getOrElse(("","",""))
+          if (currSplit._1.length > 20 /*cutoff criteria*/) { //last split
+            assignment.update(currWe._3._1, None)
+            assignment.update(currWe._3._2, None)
+            currSplitWes.trimEnd(1)
+            if (currSplitWes.isEmpty) {
+              println("UNSAT 3")
+              return (currSplitWes, assignment)
+            }
+            else {
+              val prevWE = currSplitWes.last
+              prevWE._5 match {
+                case 1 => return splittingConstx(currSplitWes, assignment, prevWE)
+                case 2 => return splittingConsty(currSplitWes, assignment, prevWE)
+                case 3 => return splittingConstz(currSplitWes, assignment, prevWE)
+                case 4 => return splittingNoConst(currSplitWes, assignment, prevWE)
+                case _ => return (currSplitWes, assignment) //ERROR
+              }
+            }
+          }
+          else { //not the last split
+            val len = currSplit._1.length
+            var awSet: java.util.Set[String] = currWe._2.getStrings(len)
+            val scalaSet: scala.collection.immutable.Set[String] = awSet.asScala.toSet
+            val sortedSeq: Seq[String] = scalaSet.toSeq.sorted
+            val index = sortedSeq.indexOf(currSplit._1)
+            val nextWord: Option[String] =
+              if (index >= 0 && index < sortedSeq.length - 1) {
+                Some(sortedSeq(index + 1))
+              }
+              else {
+                None
+              }
+            if (nextWord.isDefined) {
+              val newy = nextWord.getOrElse("").substring(0,const.length)
+              val newSplit = (nextWord.getOrElse(""), newy, const)
+              assignment.update(currWe._3._1, Some(nextWord.getOrElse("")))
+              assignment.update(currWe._3._2, Some(newy))
+              currSplitWes.trimEnd(1)
+              currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 3))
+              return (currSplitWes, assignment)
+            }
+            else {
+              awSet.clear()
+              var j = len + 1
+              while (awSet.isEmpty) {
+                println("get aw 3: ", j)
+                awSet = currWe._2.getStrings(j)
+                j += 1
+                if (j > 20) {
+                  assignment.update(currWe._3._1, None)
+                  assignment.update(currWe._3._2, None)
+                  currSplitWes.trimEnd(1)
+                  if (currSplitWes.isEmpty) {
+                    println("UNSAT 3b")
+                    return (currSplitWes, assignment)
+                  }
+                  else {
+                    val prevWE = currSplitWes.last
+                    prevWE._5 match {
+                      case 1 => return splittingConstx(currSplitWes, assignment, prevWE)
+                      case 2 => return splittingConsty(currSplitWes, assignment, prevWE)
+                      case 3 => return splittingConstz(currSplitWes, assignment, prevWE)
+                      case 4 => return splittingNoConst(currSplitWes, assignment, prevWE)
+                      case _ => return (currSplitWes, assignment) //ERROR
+                    }
+                  }
+                }
+              }
+              val scalaSet: scala.collection.immutable.Set[String] = awSet.asScala.toSet
+              val sortedSeq: Seq[String] = scalaSet.toSeq.sorted
+              val aw = sortedSeq.head
+              val newy = aw.substring(0,const.length)
+              val newSplit = (aw, newy, const)
+              assignment.update(currWe._3._1, Some(aw))
+              assignment.update(currWe._3._2, Some(newy))
+              currSplitWes.trimEnd(1)
+              currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 3))
+              return (currSplitWes, assignment)
+            }
+          }
+
+        }
+        else {
+          //first split
+          var awSet: java.util.Set[String] = new util.HashSet[String]()
+          while (awSet.isEmpty) {
+            println("get aw 3 (first): ", i)
+            awSet = currWe._2.getStrings(i)
+            i += 1
+          }
+          val scalaSet: scala.collection.immutable.Set[String] = awSet.asScala.toSet
+          val sortedSeq: Seq[String] = scalaSet.toSeq.sorted
+          val aw = sortedSeq.head
+          val newy = aw.substring(0,const.length)
+          val newSplit = (aw, newy, const)
+          assignment.update(currWe._3._1, Some(aw))
+          assignment.update(currWe._3._2, Some(newy))
+          currSplitWes.trimEnd(1)
+          currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 3))
+          return (currSplitWes, assignment)
+        }
       }
       def splittingNoConst(currSplitWes : ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], assignment: MHashMap[Term, Option[String]], currWe : (Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)) : (ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)], MHashMap[Term, Option[String]]) = {
-        return (currSplitWes, assignment)
+        if (currWe._4.isDefined) {
+          val currSplit = currWe._4.getOrElse(("","",""))
+          if (currSplit._1.length > 20 /*cutoff criteria*/) { //last split
+            assignment.update(currWe._3._1, None)
+            assignment.update(currWe._3._2, None)
+            assignment.update(currWe._3._3, None)
+            currSplitWes.trimEnd(1)
+            if (currSplitWes.isEmpty) {
+              println("UNSAT 4")
+              return (currSplitWes, assignment)
+            }
+            else {
+              val prevWE = currSplitWes.last
+              prevWE._5 match {
+                case 1 => return splittingConstx(currSplitWes, assignment, prevWE)
+                case 2 => return splittingConsty(currSplitWes, assignment, prevWE)
+                case 3 => return splittingConstz(currSplitWes, assignment, prevWE)
+                case 4 => return splittingNoConst(currSplitWes, assignment, prevWE)
+                case _ => return (currSplitWes, assignment) //ERROR
+              }
+            }
+          }
+          else { //not the last split
+            if (currWe._4.getOrElse("","","")._1 == currWe._4.getOrElse("","","")._3 && currWe._4.getOrElse("","","")._2 == "") {//last split of current aw
+              val len = currSplit._1.length
+              var awSet: java.util.Set[String] = currWe._2.getStrings(len)
+              val scalaSet: scala.collection.immutable.Set[String] = awSet.asScala.toSet
+              val sortedSeq: Seq[String] = scalaSet.toSeq.sorted
+              val index = sortedSeq.indexOf(currSplit._1)
+              val nextWord: Option[String] =
+                if (index >= 0 && index < sortedSeq.length - 1) {
+                  Some(sortedSeq(index + 1))
+                }
+                else {
+                  None
+                }
+              if (nextWord.isDefined) {
+                val newSplit = (nextWord.getOrElse(""), nextWord.getOrElse(""), "")
+                assignment.update(currWe._3._1, Some(nextWord.getOrElse("")))
+                assignment.update(currWe._3._2, Some(nextWord.getOrElse("")))
+                assignment.update(currWe._3._3, Some(""))
+                currSplitWes.trimEnd(1)
+                currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 3))
+                return (currSplitWes, assignment)
+              }
+              else {
+                awSet.clear()
+                var j = len + 1
+                while (awSet.isEmpty) {
+                  println("get aw 4: ", j)
+                  awSet = currWe._2.getStrings(j)
+                  j += 1
+                  if (j > 20) {
+                    assignment.update(currWe._3._1, None)
+                    assignment.update(currWe._3._2, None)
+                    assignment.update(currWe._3._3, None)
+                    currSplitWes.trimEnd(1)
+                    if (currSplitWes.isEmpty) {
+                      println("UNSAT 4b")
+                      return (currSplitWes, assignment)
+                    }
+                    else {
+                      val prevWE = currSplitWes.last
+                      prevWE._5 match {
+                        case 1 => return splittingConstx(currSplitWes, assignment, prevWE)
+                        case 2 => return splittingConsty(currSplitWes, assignment, prevWE)
+                        case 3 => return splittingConstz(currSplitWes, assignment, prevWE)
+                        case 4 => return splittingNoConst(currSplitWes, assignment, prevWE)
+                        case _ => return (currSplitWes, assignment) //ERROR
+                      }
+                    }
+                  }
+                }
+                val scalaSet: scala.collection.immutable.Set[String] = awSet.asScala.toSet
+                val sortedSeq: Seq[String] = scalaSet.toSeq.sorted
+                val aw = sortedSeq.head
+                val newSplit = (aw, aw, "")
+                assignment.update(currWe._3._1, Some(aw))
+                assignment.update(currWe._3._2, Some(aw))
+                assignment.update(currWe._3._3, Some(""))
+                currSplitWes.trimEnd(1)
+                currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 3))
+                return (currSplitWes, assignment)
+              }
+            }
+            else { //next split of current aw
+              val lastChary = currSplit._2.last
+              val newy = currSplit._2.dropRight(1)
+              val newz = lastChary + currSplit._3
+              val newSplit = (newy+newz, newy, newz)
+              assignment.update(currWe._3._2, Some(newy))
+              assignment.update(currWe._3._3, Some(newz))
+              currSplitWes.trimEnd(1)
+              currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 1))
+              return (currSplitWes, assignment)
+            }
+          }
+        }
+        else {
+          //first split
+          var i = 0
+          var awSet: java.util.Set[String] = new util.HashSet[String]()
+          while (awSet.isEmpty) {
+            println("get aw 4 (first): ", i)
+            awSet = currWe._2.getStrings(i)
+            i += 1
+          }
+          val scalaSet: scala.collection.immutable.Set[String] = awSet.asScala.toSet
+          val sortedSeq: Seq[String] = scalaSet.toSeq.sorted
+          val aw = sortedSeq.head
+          val newSplit = (aw, aw, "")
+          assignment.update(currWe._3._1, Some(aw))
+          assignment.update(currWe._3._2, Some(aw))
+          assignment.update(currWe._3._2, Some(""))
+          currSplitWes.trimEnd(1)
+          currSplitWes += ((currWe._1, currWe._2, currWe._3, Some(newSplit), 3))
+          return (currSplitWes, assignment)
+        }
       }
 
       var chosenWe : (Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int) = null
@@ -514,25 +861,42 @@ class OstrichLocalSearch2(goal : Goal,
       //get different const parts
       val (weNotSplitConstLeftSide, weNotSplitConstRightSidey, weNotSplitConstRightSidez, weNotSplitNoConst) = getWeWithDifferentConstParts(notSplitWes, assignment)
 
+      println("weNotSplitConstLeftSide: ",weNotSplitConstLeftSide.length)
+      println("weNotSplitConstRightSidey: ", weNotSplitConstRightSidey.length)
+      println("weNotSplitConstRightSidez: ", weNotSplitConstRightSidez.length)
+      println("weNotSplitNoConst: ", weNotSplitNoConst.length)
+      println("already split: ", currSplitWes.length)
+
       //choose we to perform splitting on
       if (weNotSplitConstLeftSide.nonEmpty) {
+        println("Splitting chose 1")
         chosenWe = weNotSplitConstLeftSide(ThreadLocalRandom.current().nextInt(weNotSplitConstLeftSide.length))
         currSplitWes.append(chosenWe)
       }
       else if (weNotSplitConstRightSidey.nonEmpty) {
+        println("Splitting chose 2")
         chosenWe = weNotSplitConstRightSidey(ThreadLocalRandom.current().nextInt(weNotSplitConstRightSidey.length))
         currSplitWes.append(chosenWe)
       }
       else if (weNotSplitConstRightSidez.nonEmpty) {
+        println("Splitting chose 3")
         chosenWe = weNotSplitConstRightSidez(ThreadLocalRandom.current().nextInt(weNotSplitConstRightSidez.length))
         currSplitWes.append(chosenWe)
       }
       else if (weNotSplitNoConst.nonEmpty) {
+        println("Splitting chose 4")
         chosenWe = weNotSplitNoConst(ThreadLocalRandom.current().nextInt(weNotSplitNoConst.length))
         currSplitWes.append(chosenWe)
       }
       else {
-        chosenWe = currSplitWes.last
+        println("Splitting chose latest curr split")
+        if (currSplitWes.isEmpty) {
+          println("UNSAT 5")
+          return (currSplitWes, assignment)
+        }
+        else {
+          chosenWe = currSplitWes.last
+        }
       }
 
       chosenWe._5 match {
@@ -561,20 +925,29 @@ class OstrichLocalSearch2(goal : Goal,
     }
  */
     def mainloop(maxTries : Int = 100) : Option[Seq[Plugin.Action]] = {
-      var tries : Int = 0
+      //println("TEST 1 BEGIN --------------")
       assignment = initialAssignment2(new MHashMap[Term, Option[String]])
+      println("INIT ASSIGNMENT: ", assignment)
       assignment = solveWeWith2AssignedParts(assignment)
+      //println("SOLVE2 ASSIGNMENT: ", assignment)
+      //assignment = solveWeWith2AssignedParts(assignment)
+      //println("SOLVE2 ASSIGNMENT AGAIN: ", assignment)
+      //println("TEST 1 END --------------")
 
       if (score(assignment) == 0) {
+        println("SAT with:" + assignment)
+        return Some(equalityPropagator.handleSolution(goal, model.toMap))
         //TODO: handle solution
       }
 
       // Regexes of the initial formula
       val fixedRegexesSafe = regexes
+      //println("fixedRegexesSafe: ", fixedRegexesSafe)
 
       // Computes Regexes of WE based on the assignment (currently all assignments have to be right)
       wordEquationIntoRegex(assignment)
       val weRegexesSafe = constructedRegexesWordequations
+      //println("weRegexesSafe: ", weRegexesSafe)
 
       // now try to solve WEs by intersecting WE-Regexes with all fixed Regexes
       val intersectedRegexesSafe = intersectWeRegexesWithFixedRegexes(fixedRegexesSafe, weRegexesSafe)
@@ -583,13 +956,22 @@ class OstrichLocalSearch2(goal : Goal,
       val acceptedWords = getAcceptedWords(intersectedRegexesSafe)
 
       // there can't be any mistakes in the assignment yet
-      val assignmentSafe = assignment
+      var assignmentSafe = assignment
+      var assignmentSafe2: Map[Term, Option[String]] = assignmentSafe.toMap
+      println("ASSIGNMENT SAFE: ", assignmentSafe)
 
       // try to solve with current fixed Regexes
-      val solution = solveWithCurrentFixedRegexes(maxTries, fixedRegexesSafe)
+      //println("TEST 2")
+
+      var solution = solveWithCurrentFixedRegexes(maxTries, assignment, fixedRegexesSafe)
+      //var solution : Option[MHashMap[Term,Option[String]]] = None
+      //println("TEST 3")
+
 
       //solution found
       if (solution.isDefined) {
+        println("SAT with:" + assignment)
+        return Some(equalityPropagator.handleSolution(goal, model.toMap))
         //Todo: handle Solution
       }
 
@@ -601,43 +983,46 @@ class OstrichLocalSearch2(goal : Goal,
       var currSplitWes = new ArrayBuffer[(Term, Automaton, (Term, Term, Term), Option[(String, String, String)], Int)]
 
       //revert assignment to a safe assignment
-      assignment = assignmentSafe
+      assignment = mutable.HashMap() ++= assignmentSafe2
+      //println(assignment)
+      //assignment = solveWeWith2AssignedParts(assignment)
+      var i = 0
 
-      val (newSplitWes, newAssignment) = splitting(currSplitWes, assignment)
-
-
-
-      //Todo: Splitting on selected WE
-      // Adding disjunct to fixedRegexes
-      // Try to solve
-      // Loop this process
-
-
-
-      //pick a not fulfilled WE
-      //val unfulfilledWEs =
-
-
-
-
-      //Todo: handle solution
-      return Some(equalityPropagator.handleSolution(goal, model.toMap))
-
+      while (solution.isEmpty && i < 1000) {
+        //splitting
+        println("ITERATION: ", i)
+        val (newSplitWes, newAssignment) = splitting(currSplitWes, assignment)
+        println("--- Splitting DONE ---")
+        assignmentSafe2 = assignment.toMap
+        assignment = newAssignment
+        //LS
+        solution = solveWithCurrentFixedRegexes(maxTries, assignment, fixedRegexesSafe)
+        println("--- LS DONE ---")
+        assignment = mutable.HashMap() ++= assignmentSafe2
+        currSplitWes = newSplitWes
+        i += 1
+      }
+      if (solution.isDefined) {
+        println("SAT with:" + assignment)
+        return Some(equalityPropagator.handleSolution(goal, model.toMap))
+      }
+      else {return None}
       }
 
 
 
 
     // TESTING AREA
-    tryAssignments(new MHashMap[Term, Option[String]], new ArrayBuffer[(Term, String)])
-    val test = getUsedChars()
+    //tryAssignments(new MHashMap[Term, Option[String]], new ArrayBuffer[(Term, String)])
+    //val test = getUsedChars()
+
+    mainloop()
 
 
 
 
 
-
-
+  //TODO: Splitting check if assignment viable ????
 
 
 

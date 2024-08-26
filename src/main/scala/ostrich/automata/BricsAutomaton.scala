@@ -552,6 +552,10 @@ class BricsAutomaton(val underlying : BAutomaton) extends AtomicStateAutomaton {
 
   override def toString : String = underlying.toString
 
+
+  def getStrings(length : Int) : java.util.Set[String] =
+    underlying.getStrings(length)
+
   /**
    * Union
    */

@@ -46,6 +46,8 @@ import scala.collection.mutable.{BitSet => MBitSet,
  * Interface for different implementations of finite-state automata.
  */
 trait Automaton {
+
+  def getStrings(length : Int) : java.util.Set[String]
   /**
    * Union
    */
