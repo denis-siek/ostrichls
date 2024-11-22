@@ -36,6 +36,8 @@ import ap.basetypes.IdealInt
 import ap.interpolants.StructuredPrograms.Assignment
 import ap.proof.goal.Goal
 import ap.proof.theoryPlugins.Plugin
+import ap.proof.theoryPlugins.Plugin.GoalState
+import ap.terfor.conjunctions.Conjunction
 import ap.terfor.linearcombination.LinearCombination
 import ap.terfor.preds.Atom
 import ap.terfor.{TerForConvenience, Term}
@@ -50,6 +52,8 @@ import scala.collection.mutable.{HashMap => MHashMap}
 import scala.concurrent.forkjoin.ThreadLocalRandom
 import scala.util.control.Breaks.{break, breakable}
 import scala.collection.immutable.Queue
+import ostrich.OstrichStringTheory
+
 
 class OstrichLocalSearch(goal : Goal,
                          theory : OstrichStringTheory,
@@ -59,35 +63,22 @@ class OstrichLocalSearch(goal : Goal,
 
   implicit val order = goal.order
 
-
   val facts        = goal.facts
-  println("facts: ", goal.facts)
   val predConj     = facts.predConj
-  println("predConj: ", predConj)
   val concatLits   = predConj.positiveLitsWithPred(_str_++)
-  println("concatLits: ", concatLits)
   val posRegularExpressions = predConj.positiveLitsWithPred(str_in_re_id)
-  println("posRegularExpressions: ", posRegularExpressions)
   val negRegularExpressions = predConj.negativeLitsWithPred(str_in_re_id)
-  println("negRegularExpressions: ", negRegularExpressions)
   val concatPerRes = concatLits groupBy (_(2))
-  println("concatPerRes: ", concatPerRes)
   val replacesLits = predConj.positiveLitsWithPred(FunPred(str_replace))
-  println("replaceLits: ", replacesLits)
   val lengthLits   = predConj.positiveLitsWithPred(_str_len)
   val lengthMap    = (for (a <- lengthLits.iterator) yield (a(0), a(1))).toMap
   private val equalityPropagator = new OstrichEqualityPropagator(theory)
-
-  //val aw = Seq(120,121,122)
-  //val a = for (c <- aw.toIndexedSeq) yield c.toChar.toString
-  //val astr = a.mkString("")
-  //println(astr)
-  //println("TEST: ",java.util.regex.Pattern.quote(""))
 
   val maxIterations = 5000
   var i = 0
   val maxQueueSize = 20 //max iterations with same score
   val tabooSize = 2 //amount of previous assignments that are not allowed as current assignment
+  var result =(goal, new mutable.HashMap[Term, Either[IdealInt, Seq[Int]]].toMap) :(Goal, Map[Term, Either[IdealInt, Seq[Int]]])
 
   class FixedSizeQueue[A](val maxSize: Int) {
     private var queue = Queue.empty[A]
@@ -131,16 +122,6 @@ class OstrichLocalSearch(goal : Goal,
 
   def explore : Seq[Plugin.Action] = {
     val model = new MHashMap[Term, Either[IdealInt, Seq[Int]]]
-    //println("model_start: ", model)
-
-    //val auttest = fromString("7")
-    //val wordtest = List(55)
-    //val res = auttest.apply(wordtest)
-    //println("TEST : ", res)
-
-    //val auttest = fromString("")
-    //println("TEST: ",auttest.apply(Vector()))
-
 
     val regexes    = new ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])]
     var constructedRegexesWordequations = new ArrayBuffer[(Term, Automaton, Option[(Term, Term, Term)])]
@@ -148,7 +129,6 @@ class OstrichLocalSearch(goal : Goal,
 
     // initial assignment
     // sets all non constant variables to empty string
-    // TODO: try different initial assignments
     var assignment = new MHashMap[Term, Option[String]]
 
     def initialAssignmentAllEmpty(assignment: MHashMap[Term, Option[String]]) : MHashMap[Term, Option[String]] = {
@@ -196,7 +176,6 @@ class OstrichLocalSearch(goal : Goal,
       }
       return assignment
     }
-    //println("Assignment: ", assignment)
 
 
     def complexity() : MHashMap[Term, Int] = {
@@ -218,18 +197,8 @@ class OstrichLocalSearch(goal : Goal,
       concatPerRes.keys.foreach(getComplexity)
       return complexityMap
     }
-    /*
-    val complexityMap1 = complexity()
-    val x = complexityMap1.values.sum / complexityMap1.size
-    for (element <- complexityMap1){
-      if (element._2 >= x) {
-        complexityMap1(element._1) = 2
-      } else {complexityMap1(element._1) = 1}
-    }
-    val complexityMap = complexityMap1
-    */
+
     val complexityMap = complexity()
-    println("COMPLEXITY", complexityMap)
 
     // initial assignment based on parts of strVars
     def initialAssignment3(assignment: MHashMap[Term, Option[String]]) : MHashMap[Term, Option[String]] = {
@@ -279,7 +248,6 @@ class OstrichLocalSearch(goal : Goal,
       return assignment
     }
 
-    //println("INIT 3: ", initialAssignment3(assignment))
 
     // transforms wordequations into regular expressions based on current assignment
     def wordEquationIntoRegex(assignment : MHashMap[Term, Option[String]]) : Unit = {
@@ -309,28 +277,6 @@ class OstrichLocalSearch(goal : Goal,
         }
       }
     }
-/*
-    def replaceIntoRegex(assignment: MHashMap[Term, Option[String]]) : Unit = {
-      constructedRegexesReplace.clear()
-      for (replace <- replacesLits) {
-        val left = replace.tail.tail.tail.head
-        val right1 = assignment.get(replace.head).flatten
-        val right2 = assignment.get(replace.tail.head).flatten
-        val right3 = assignment.get(replace.tail.tail.head).flatten
-
-        (right1, right2, right3) match {
-          case (Some(x), Some(y), Some(z)) => {
-            val yy = if (y.isEmpty) "" else java.util.regex.Pattern.quote(y)
-            val zz = if (z.isEmpty) "" else java.util.regex.Pattern.quote(z)
-            val aut = fromString(x.replaceFirst(yy,zz))
-            constructedRegexesReplace += ((left, aut, None))
-          }
-          case _ => //what to do if NONE ??
-        }
-      }
-    }
-
- */
 
     def solveReplace(assignment: MHashMap[Term, Option[String]]) : MHashMap[Term, Option[String]] = {
       for (replace <- replacesLits) {
@@ -392,15 +338,11 @@ class OstrichLocalSearch(goal : Goal,
     }
 
     for (regex <- regexes){
-      //println("regex: ", regex)
       val acceptedWord = regex._2.getAcceptedWord
-      //println("acceptedWord: ", acceptedWord)
       val isAccepted = regex._2.apply(acceptedWord.get)
-      //println("isAccepted: ", isAccepted)
       val product = AutomataUtils.product(Seq(regex._2))
       val concat = AutomataUtils.concat(regex._2.asInstanceOf[BricsAutomaton], regex._2.asInstanceOf[BricsAutomaton])
       model.put(regex._1, Right(acceptedWord.get))
-      //println("aw class", acceptedWord.get.getClass)
     }
 
 
@@ -411,7 +353,6 @@ class OstrichLocalSearch(goal : Goal,
         for (element <- concat._2) {
            (assignment.get(element.tail.tail.head), assignment.get(element.head), assignment.get(element.tail.head)) match {
              case (Some(Some(x)),Some(Some(y)),Some(Some(z))) => if (x != y + z){score += 1
-               //println(element)
                }
              case _ => score += 1
           }
@@ -437,7 +378,6 @@ class OstrichLocalSearch(goal : Goal,
         val right1 = assignment.get(replace.head).flatten
         val right2 = assignment.get(replace.tail.head).flatten
         val right3 = assignment.get(replace.tail.tail.head).flatten
-        //println(left, right1, right2, right3)
         (left, right1, right2, right3) match {
           case (Some(a), Some(x), Some(y), Some(z)) => {
             //val yy = if (y.isEmpty) "" else java.util.regex.Pattern.quote(y)
@@ -465,7 +405,6 @@ class OstrichLocalSearch(goal : Goal,
           (assignment.get(element.tail.tail.head), assignment.get(element.head), assignment.get(element.tail.head)) match {
             case (Some(Some(x)),Some(Some(y)),Some(Some(z))) => if (x != y + z){
               score += (complexityMap.getOrElse(element.tail.head,cH(element.tail.head)) + complexityMap.getOrElse(element.head,cH(element.head)))
-              //println(element)
             }
             case _ => score += 1
           }
@@ -491,7 +430,6 @@ class OstrichLocalSearch(goal : Goal,
         val right1 = assignment.get(replace.head).flatten
         val right2 = assignment.get(replace.tail.head).flatten
         val right3 = assignment.get(replace.tail.tail.head).flatten
-        //println(left, right1, right2, right3)
         (left, right1, right2, right3) match {
           case (Some(a), Some(x), Some(y), Some(z)) => {
             //val yy = if (y.isEmpty) "" else java.util.regex.Pattern.quote(y)
@@ -541,13 +479,11 @@ class OstrichLocalSearch(goal : Goal,
     // don't use this unassign method
     def unassignRandom(assignment: MHashMap[Term, Option[String]], tries : Int) : Unit = {
       if (tries == 0) {
-        println("UNASSIGN FAILED")
         Seq()
       }
       val keyArray = assignment.keysIterator.toArray
       val keyIndex : Int = ThreadLocalRandom.current().nextInt(assignment.keySet.size)
       if ((!keyArray(keyIndex).isConstant) & assignment.get(keyArray(keyIndex)).flatten.isDefined){
-        println("ASSIGNMENT UPDATED", assignment)
         return assignment.update(keyArray(keyIndex), None)
       }
       unassignRandom(assignment, tries-1)
@@ -559,7 +495,7 @@ class OstrichLocalSearch(goal : Goal,
         if (!we._1.isConstant) {candidates += we._1}
         if (!we._2.isConstant) {candidates += we._2}
       }
-      if (candidates.isEmpty) {println("UNASSIGN FAILED")}
+      if (candidates.isEmpty) {/*println("UNASSIGN FAILED")*/}
       else {
         val keyIndex: Int = ThreadLocalRandom.current().nextInt(candidates.size)
         assignment.update(candidates(keyIndex), None)
@@ -588,21 +524,18 @@ class OstrichLocalSearch(goal : Goal,
           aut = aut.&(regex._2)
           regex._3 match {
             case Some(x) => wordequation += x
-            case None => println("NONE ", regex._3)
+            case None => //println("NONE ", regex._3)
           }
         }
       }
       return (aut, wordequation)
     }
 
-    // TODO: regex assignment to wordequation assignment
     def regexAssignmentIntoWordequationAssignment(acceptedWord : Option[Seq[Int]], wordequations : ArrayBuffer[(Term, Term, Term)], assignment : MHashMap[Term, Option[String]], strVar : Term) : MHashMap[Term, Option[String]] = {
       var reorder = false
       val acceptedWordString = acceptedWord.map(_.map(_.toChar).mkString).getOrElse("") //should never be None
       val len = acceptedWordString.length
       val workingAssignment = assignment
-      //println("Wordequations: ", wordequations)
-      //println("workingAssignment 1: ", workingAssignment)
 
       if (wordequations.isEmpty && !strVar.isConstant){
         workingAssignment.update(strVar, Some(acceptedWordString))
@@ -614,13 +547,9 @@ class OstrichLocalSearch(goal : Goal,
         }
         (workingAssignment.get(we._1), workingAssignment.get(we._2)) match {
           case (Some(Some(x)),Some(Some(y))) => if (acceptedWordString != x+y) {
-            // TODO: choose new word
-            println("ERROR 1")
              }
           case (Some(Some(x)), Some(None)) =>
             if (x.length > len) {
-              // TODO: choose new word
-              println("ERROR 2")
             }
             else if (x == acceptedWordString.substring(0,x.length)) {
               workingAssignment.update(we._2, Some(acceptedWordString.substring(x.length)))
@@ -628,13 +557,9 @@ class OstrichLocalSearch(goal : Goal,
               break
             }
             else {
-              // TODO: choose new word
-              println("ERROR 3")
             }
           case (Some(None), Some(Some(x))) =>
             if (x.length > len) {
-              // TODO: choose new word
-              println("ERROR 4")
             }
             else if (x == acceptedWordString.substring(len-x.length)) {
               workingAssignment.update(we._1, Some(acceptedWordString.substring(0,len-x.length)))
@@ -642,8 +567,6 @@ class OstrichLocalSearch(goal : Goal,
               break
             }
             else {
-              // TODO: choose new word
-              println("ERROR 5")
             }
           case (Some(None), Some(None)) =>
 
@@ -674,7 +597,6 @@ class OstrichLocalSearch(goal : Goal,
             break
         }
       } }
-      //println("workingAssignment: ", workingAssignment)
       if (reorder) {
         val newWordequations = orderWordequations(workingAssignment, wordequations)
         return regexAssignmentIntoWordequationAssignment(acceptedWord, newWordequations, workingAssignment, strVar)
@@ -691,18 +613,10 @@ class OstrichLocalSearch(goal : Goal,
     //assignment = initialAssignment2(assignment)
     assignment = initialAssignment3(assignment)
 
-    //println("score: ", score(assignment))
     if (complexityScore(assignment) == 0) {
-      println("SAT with following Assignment: ", assignment)
       assignmentToModel(assignment, model)
-      println("MODEL: ", model)
       return equalityPropagator.handleSolution(goal, model.toMap)
     }
-
-    // TODO: remove duplicate code fragment
-    // TODO: forbidding strategy IMPORTANT!!!
-    // TODO: neg RegExp
-    // TODO: replace
 
     val recentScores = new FixedSizeQueue[Int](maxQueueSize)
     val previousAssignments = new FixedSizeQueue[MHashMap[Term, Option[String]]](tabooSize)
@@ -712,28 +626,16 @@ class OstrichLocalSearch(goal : Goal,
     val prohibitedAssignments = new ArrayBuffer[MHashMap[Term, Option[String]]]
 
 
-
-    //mainloopV2()
-
     while (i < maxIterations) {
-      println("Loop: " + i.toString)
-      println("Assignment @ start of loop: ", assignment)
-      println("current Score: ", complexityScore(assignment))
       previousAssignments.enqueue(assignment)
       wordEquationIntoRegex(assignment)
-      //println("constructedRegexesWordequations: ", constructedRegexesWordequations)
       var usedRegexes = regexes ++ constructedRegexesWordequations
-      //println("usedRegexes", usedRegexes)
       var choice = new MHashMap[MHashMap[Term, Option[String]], Int]
-      //println("choice", choice)
       for (strVar <- assignment.keys) {
-        //println("strVar: ", strVar)
         if (!strVar.isConstant) {
-          //println("Non-constant strVra: ", strVar)
           var existsEmpty = false
           breakable {
             for (regex <- constructedRegexesWordequations) {
-              //println(strVar, regex._2)
               if (regex._1 == strVar && regex._2.isEmpty) {
                 existsEmpty = true
                 break
@@ -752,102 +654,60 @@ class OstrichLocalSearch(goal : Goal,
             }
           }
           if (existsEmpty) {
-            //println("existsEmpty strVar: ", strVar)
             var newAssignment = assignment
             newAssignment.update(strVar, None)
-            //println("newAssignment", newAssignment)
             wordEquationIntoRegex(newAssignment)
-            //println("constructedRegexesWordequations: ", constructedRegexesWordequations)
             usedRegexes = regexes ++ constructedRegexesWordequations
-            //println("usedRegexes 2: ", usedRegexes)
 
             var strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-            //println("strVarIntersection: ", strVarIntersection)
-            // TODO: UNSAT if all var unassigned and still empty
             var print = false //debug
             while (strVarIntersection._1.isEmpty) {
               print = true //debug
-              // TODO: try different unassigning strategies here
-              //unassignRandom(newAssignment, 500)
               unassignRandomRelevant(newAssignment, strVarIntersection._2)
               wordEquationIntoRegex(newAssignment)
               usedRegexes = regexes ++ constructedRegexesWordequations
               strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-              //println("UPDATE strVarIntersection", strVarIntersection._1)
             }
-            //if (print) {println("UPDATE strVarIntersection", strVarIntersection._1)} //debug
             var strVarRegexAssignment = strVarIntersection._1.getAcceptedWord
-            //strVarRegexAssignment = Some(Seq(120,121))
-            //println("strVarRegexAssignment: ", strVarRegexAssignment)
             val orderedWordequations = orderWordequations(newAssignment, strVarIntersection._2)
-            //println("newAssignment", newAssignment)
-            //println("WordEquations: ", strVarIntersection._2)
-            //println("Order Test: ", test)
             val strVarAssignment = regexAssignmentIntoWordequationAssignment(strVarRegexAssignment, orderedWordequations, newAssignment, strVar) //could probably just be newAssignment
             newAssignment = newAssignment ++ strVarAssignment
             newAssignment = solveReplace(newAssignment)
             val currentScore: Int = complexityScore(newAssignment)
             if (currentScore == 0) {
-              println("SAT with following Assignment: ", newAssignment)
               assignmentToModel(newAssignment, model)
-              println("MODEL: ", model)
               return equalityPropagator.handleSolution(goal, model.toMap)
             }
             choice.update(newAssignment, currentScore)
           }
         }
         else { //strVar is constant
-          //println("Constant strVra: ", strVar)
           var newAssignment = assignment
           newAssignment = constantStrVarResolveConflict(strVar, usedRegexes, newAssignment)
-          //println("Assignment after constant resolve conflict: ", newAssignment)
 
           var strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-          //println("strVarIntersection: ", strVarIntersection)
-          // TODO: UNSAT if all var unassigned and still empty
           var print = false //debug
           while (strVarIntersection._1.isEmpty) {
             print = true //debug
-            // TODO: try different unassigning strategies here
-            //unassignRandom(newAssignment, 500)
             unassignRandomRelevant(newAssignment, strVarIntersection._2)
             wordEquationIntoRegex(newAssignment)
             usedRegexes = regexes ++ constructedRegexesWordequations
             strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-            //println("UPDATE strVarIntersection", strVarIntersection._1)
           }
-          //if (print) {println("UPDATE strVarIntersection", strVarIntersection._1)} //debug
           var strVarRegexAssignment = strVarIntersection._1.getAcceptedWord
-          //strVarRegexAssignment = Some(Seq(120,121))
-          //println("strVarRegexAssignment: ", strVarRegexAssignment)
           val orderedWordequations = orderWordequations(newAssignment, strVarIntersection._2)
-          //println("newAssignment", newAssignment)
-          //println("WordEquations: ", strVarIntersection._2)
-          //println("Order Test: ", test)
           val strVarAssignment = regexAssignmentIntoWordequationAssignment(strVarRegexAssignment, orderedWordequations, newAssignment, strVar) //could probably just be newAssignment
           newAssignment = newAssignment ++ strVarAssignment
           newAssignment = solveReplace(newAssignment)
           val currentScore: Int = complexityScore(newAssignment)
           if (currentScore == 0) {
-            println("SAT with following Assignment: ", newAssignment)
             assignmentToModel(newAssignment, model)
-            println("MODEL: ", model)
             return equalityPropagator.handleSolution(goal, model.toMap)
           }
           choice.update(newAssignment, currentScore)
         }
       }
-/*
-      val choice2 = choice
-      for (element <- choice2.keys) {
-        if (previousAssignments.contains(element)) {
-          choice2.remove(element)
-        }
-      }
-      if (choice2.nonEmpty) {
-        choice = choice2
-      }
-*/
+
       if (choice.nonEmpty) {
         if (recentScores.size != maxQueueSize || !recentScores.allSame) {
           if (choice.values.min < complexityScore(assignment)) {
@@ -873,240 +733,10 @@ class OstrichLocalSearch(goal : Goal,
           recentScores.enqueue(complexityScore(assignment))
         }
       }
-      else {println("CHOICE EMPTY")}
-/*
-      // choice should never be empty in final version ?
-      if (choice.nonEmpty) {
-        println("CHOICE: ", choice)
-        // random choice if score does not improve
-        if (recentScores.size == maxQueueSize && recentScores.allSame) {
-          val values = choice.keys.toVector
-          val value = values(ThreadLocalRandom.current().nextInt(values.size))
-          assignment = value
-          recentScores.enqueue(choice(value))
-        }
-        else {
-          val minValue = choice.values.min
-          val minElements = choice.filter { case (_, value) => value == minValue }.toSeq
-          val randomElement = minElements(ThreadLocalRandom.current().nextInt(minElements.length))
-          assignment = randomElement._1
-          recentScores.enqueue(randomElement._2)
-          //assignment = choice.minBy(_._2)._1
-        }
-      }
-      else {println("CHOICE EMPTY")}
-*/
       i += 1
     }
-    println("maxIterations")
 
-
-    def unassignLeastAppearances(assignment: MHashMap[Term, Option[String]], wordequations : ArrayBuffer[(Term, Term, Term)], options : MHashMap[Term, Int]) :Unit = {
-      if (options.isEmpty) {
-        println("UNASSIGN FAILED")
-        return
-      }
-      val leastAppearances = options.minBy(_._2)._1
-      if (leastAppearances.isConstant || assignment.get(leastAppearances) == None) {
-        options.remove(leastAppearances)
-        unassignLeastAppearances(assignment, wordequations, options)
-      } else {
-        assignment.update(leastAppearances, None)
-        return
-      }
-      return
-    }
-
-    def countAppearances( lits : IndexedSeq[Atom]) : MHashMap[Term, Int] = {
-      val appearances = new MHashMap[Term, Int]
-      for (lit <- lits) {
-        val value1 : Int = appearances.getOrElse(lit.head, 0) + 1
-        val value2 : Int = appearances.getOrElse(lit.tail.head, 0) + 1
-        val value3 : Int = appearances.getOrElse(lit.tail.tail.head, 0) + 1
-        appearances.update(lit.head, value1)
-        appearances.update(lit.tail.head, value2)
-        appearances.update(lit.tail.tail.head, value3)
-      }
-      return appearances
-    }
-
-    def mainloopV2() : Option[Seq[Plugin.Action]] = {
-      assignment = initialAssignmentAllEmpty(new MHashMap[Term, Option[String]])
-      var countedAppearences = countAppearances(concatLits)
-      while (i < maxIterations) {
-        println("Loop V2: " + i.toString)
-        println("Assignment @ start of loop: ", assignment)
-        println("current Score: ", score(assignment))
-        previousAssignments.enqueue(assignment)
-        wordEquationIntoRegex(assignment)
-        //println("constructedRegexesWordequations: ", constructedRegexesWordequations)
-        var usedRegexes = regexes ++ constructedRegexesWordequations
-        //println("usedRegexes", usedRegexes)
-        var choice = new MHashMap[MHashMap[Term, Option[String]], Int]
-        //println("choice", choice)
-        if (countedAppearences.isEmpty) {
-          countedAppearences = countAppearances(concatLits)
-        }
-        var strVar = countedAppearences.maxBy(_._2)._1
-        countedAppearences.remove(strVar)
-          //println("strVar: ", strVar)
-          if (!strVar.isConstant) {
-            //println("Non-constant strVra: ", strVar)
-            var existsEmpty = false
-            breakable {
-              for (regex <- constructedRegexesWordequations) {
-                //println(strVar, regex._2)
-                if (regex._1 == strVar && regex._2.isEmpty) {
-                  existsEmpty = true
-                  break
-                }
-              }
-              for (regex <- regexes) {
-                val strVarString = assignment(strVar)
-                strVarString match {
-                  case Some(x) => val strVarSeqInt = stringToSeqInt(x)
-                    if (regex._1 == strVar && !regex._2.apply(strVarSeqInt)) {
-                      existsEmpty = true
-                      break
-                    }
-                  case None => //if regex empty UNSAT
-                }
-              }
-            }
-            if (existsEmpty) {
-              //println("existsEmpty strVar: ", strVar)
-              var newAssignment = assignment
-              newAssignment.update(strVar, None)
-              //println("newAssignment", newAssignment)
-              wordEquationIntoRegex(newAssignment)
-              //println("constructedRegexesWordequations: ", constructedRegexesWordequations)
-              usedRegexes = regexes ++ constructedRegexesWordequations
-              //println("usedRegexes 2: ", usedRegexes)
-
-              var strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-              //println("strVarIntersection: ", strVarIntersection)
-              // TODO: UNSAT if all var unassigned and still empty
-              var print = false //debug
-              while (strVarIntersection._1.isEmpty) {
-                print = true //debug
-                // TODO: try different unassigning strategies here
-                //unassignRandom(newAssignment, 500)
-                //unassignRandomRelevant(newAssignment, strVarIntersection._2)
-                unassignLeastAppearances(newAssignment, strVarIntersection._2, countedAppearences)
-                wordEquationIntoRegex(newAssignment)
-                usedRegexes = regexes ++ constructedRegexesWordequations
-                strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-                //println("UPDATE strVarIntersection", strVarIntersection._1)
-              }
-              //if (print) {println("UPDATE strVarIntersection", strVarIntersection._1)} //debug
-              var strVarRegexAssignment = strVarIntersection._1.getAcceptedWord
-              //strVarRegexAssignment = Some(Seq(120,121))
-              //println("strVarRegexAssignment: ", strVarRegexAssignment)
-              val orderedWordequations = orderWordequations(newAssignment, strVarIntersection._2)
-              //println("newAssignment", newAssignment)
-              //println("WordEquations: ", strVarIntersection._2)
-              //println("Order Test: ", test)
-              val strVarAssignment = regexAssignmentIntoWordequationAssignment(strVarRegexAssignment, orderedWordequations, newAssignment, strVar) //could probably just be newAssignment
-              newAssignment = newAssignment ++ strVarAssignment
-              newAssignment = solveReplace(newAssignment)
-              val currentScore: Int = score(newAssignment)
-              if (currentScore == 0) {
-                println("SAT with following Assignment: ", newAssignment)
-                assignmentToModel(newAssignment, model)
-                println("MODEL: ", model)
-                return Some(equalityPropagator.handleSolution(goal, model.toMap))
-              }
-              choice.update(newAssignment, currentScore)
-            }
-          }
-          else { //strVar is constant
-            //println("Constant strVra: ", strVar)
-            var newAssignment = assignment
-            newAssignment = constantStrVarResolveConflict(strVar, usedRegexes, newAssignment)
-            //println("Assignment after constant resolve conflict: ", newAssignment)
-
-            var strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-            //println("strVarIntersection: ", strVarIntersection)
-            // TODO: UNSAT if all var unassigned and still empty
-            var print = false //debug
-            while (strVarIntersection._1.isEmpty) {
-              print = true //debug
-              // TODO: try different unassigning strategies here
-              //unassignRandom(newAssignment, 500)
-              //unassignRandomRelevant(newAssignment, strVarIntersection._2)
-              unassignLeastAppearances(newAssignment, strVarIntersection._2, countedAppearences)
-              wordEquationIntoRegex(newAssignment)
-              usedRegexes = regexes ++ constructedRegexesWordequations
-              strVarIntersection = makeStrVarIntersection(strVar, usedRegexes)
-              //println("UPDATE strVarIntersection", strVarIntersection._1)
-            }
-            //if (print) {println("UPDATE strVarIntersection", strVarIntersection._1)} //debug
-            var strVarRegexAssignment = strVarIntersection._1.getAcceptedWord
-            //strVarRegexAssignment = Some(Seq(120,121))
-            //println("strVarRegexAssignment: ", strVarRegexAssignment)
-            val orderedWordequations = orderWordequations(newAssignment, strVarIntersection._2)
-            //println("newAssignment", newAssignment)
-            //println("WordEquations: ", strVarIntersection._2)
-            //println("Order Test: ", test)
-            val strVarAssignment = regexAssignmentIntoWordequationAssignment(strVarRegexAssignment, orderedWordequations, newAssignment, strVar) //could probably just be newAssignment
-            newAssignment = newAssignment ++ strVarAssignment
-            newAssignment = solveReplace(newAssignment)
-            val currentScore: Int = score(newAssignment)
-            if (currentScore == 0) {
-              println("SAT with following Assignment: ", newAssignment)
-              assignmentToModel(newAssignment, model)
-              println("MODEL: ", model)
-              return Some(equalityPropagator.handleSolution(goal, model.toMap))
-            }
-            choice.update(newAssignment, currentScore)
-          }
-        /*
-        val choice2 = choice
-        for (element <- choice2.keys) {
-          if (previousAssignments.contains(element)) {
-            choice2.remove(element)
-          }
-        }
-        if (choice2.nonEmpty) {
-          choice = choice2
-        }
-         */
-
-        // choice should never be empty in final version ?
-        if (choice.nonEmpty) {
-          println("CHOICE: ", choice)
-          // random choice if score does not improve
-          if (recentScores.size == maxQueueSize && recentScores.allSame) {
-            val values = choice.keys.toVector
-            val value = values(ThreadLocalRandom.current().nextInt(values.size))
-            assignment = value
-            recentScores.enqueue(choice(value))
-          }
-          else {
-            val minValue = choice.values.min
-            val minElements = choice.filter { case (_, value) => value == minValue }.toSeq
-            val randomElement = minElements(ThreadLocalRandom.current().nextInt(minElements.length))
-            assignment = randomElement._1
-            recentScores.enqueue(randomElement._2)
-            //assignment = choice.minBy(_._2)._1
-          }
-        }
-        else {println("CHOICE EMPTY")}
-        i += 1
-      }
-      println("maxIterations")
-      return None
-    }
-
-    Seq()
+    return List(Plugin.AddFormula(Conjunction.TRUE))
   }
+
 }
-
-// Scoring Replace Notes
-// (assert (= a (str.replace b c d)))
-// val valb = match
-//    case Term => assignment(b)
-//    case String => str
-
-// valb.replaceFirst(valc, vald)
-// assignment(a) == valb
